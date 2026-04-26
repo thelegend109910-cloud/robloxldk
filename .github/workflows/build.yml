@@ -261,5 +261,5 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Legend-Executor
-          path: Legend.dylib
+          name: LegendDelta-Executor
+          path: LegendDelta.dylib
