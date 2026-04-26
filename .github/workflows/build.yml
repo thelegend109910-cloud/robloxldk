@@ -8,31 +8,19 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Create Objective-C++ source code
+      - name: Create Objective-C source code
         run: |
-          cat > LegendDelta.mm << 'EOF'
+          cat > LegendDelta.m << 'EOF'
           #import <UIKit/UIKit.h>
-          #import <WebKit/WebKit.h>
           
-          // ============================================
-          // LEGEND DELTA EXECUTOR - iOS Roblox Executor
-          // Design: KRNL-style with Cyan theme
-          // ============================================
-          
-          @interface LegendDelta : UIViewController <UIGestureRecognizerDelegate, WKNavigationDelegate>
+          @interface LegendDelta : UIViewController
           @property (nonatomic, strong) UIView *floatingButton;
           @property (nonatomic, strong) UIView *mainPanel;
-          @property (nonatomic, strong) UIVisualEffectView *blurView;
-          @property (nonatomic, strong) NSMutableArray *scriptTabs;
           @property (nonatomic, strong) UITextView *codeEditor;
           @property (nonatomic, strong) UITableView *scriptTable;
           @property (nonatomic, strong) UISearchBar *searchBar;
           @property (nonatomic, strong) NSArray *scripts;
-          @property (nonatomic, strong) NSString *currentScript;
           @property (nonatomic, assign) BOOL isMinimized;
-          @property (nonatomic, assign) CGFloat panelWidth;
-          @property (nonatomic, assign) CGFloat panelHeight;
-          @property (nonatomic, strong) WKWebView *webView;
           @end
           
           @implementation LegendDelta
@@ -40,265 +28,138 @@ jobs:
           - (void)viewDidLoad {
               [super viewDidLoad];
               self.view.backgroundColor = [UIColor clearColor];
-              self.panelWidth = 380;
-              self.panelHeight = 550;
               self.isMinimized = YES;
               
-              // Load sample scripts database
-              [self loadScriptDatabase];
-              
-              // Create UI
+              [self loadScripts];
               [self createFloatingButton];
               [self createMainPanel];
               
-              // Setup Roblox WebView connection
-              [self setupRobloxConnection];
-              
-              // Show floating button initially
               self.floatingButton.hidden = NO;
               self.mainPanel.hidden = YES;
           }
           
-          - (void)loadScriptDatabase {
+          - (void)loadScripts {
               self.scripts = @[
-                  @{@"title": @"AUTO STEAL | TP TO BRAINROTS", @"author": @"LegendDev", @"likes": @15420, @"views": @89200, @"game": @"Brainrots", @"code": @"-- Auto Steal Script\n-- Join Discord: discord.gg/legend\nlocal player = game.Players.LocalPlayer\nlocal args = {[1] = 'Steal'}\ngame:GetService('ReplicatedStorage'):FireServer(unpack(args))\nprint('Script executed!')"},
-                  @{@"title": @"AUTO FARM | INFINITE YIELD", @"author": @"Edge", @"likes": @43200, @"views": @215000, @"game": @"Universal", @"code": @"loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()"},
-                  @{@"title": @"ESP | AIMBOT | WALLHACK", @"author": @"SirMeme", @"likes": @28700, @"views": @143000, @"game": @"Arsenal", @"code": @"-- ESP Script\nfor _, v in pairs(game.Players:GetPlayers()) do\n    if v ~= game.Players.LocalPlayer then\n        local esp = Instance.new('Highlight')\n        esp.Adornee = v.Character\n        esp.FillColor = Color3.fromRGB(0, 212, 255)\n        esp.Parent = v.Character\n    end\nend"},
-                  @{@"title": @"FLY | NO CLIP | SPEED HACK", @"author": @"CMD-X", @"likes": @19800, @"views": @"97.2K", @"game": @"Universal", @"code": @"-- Fly Script\nlocal plr = game.Players.LocalPlayer\nlocal char = plr.Character\nlocal root = char.HumanoidRootPart\nlocal bodyVel = Instance.new('BodyVelocity')\nbodyVel.MaxForce = Vector3.new(100000, 100000, 100000)\nbodyVel.Parent = root\ngame:GetService('UserInputService').InputBegan:Connect(function(input)\n    if input.KeyCode == Enum.KeyCode.Space then\n        bodyVel.Velocity = workspace.CurrentCamera.CFrame.LookVector * 100\n    end\nend)"}
+                  @{@"name": @"Auto Farm", @"author": @"Legend", @"code": @"print('Auto Farm Started')"},
+                  @{@"name": @"ESP Script", @"author": @"Delta", @"code": @"print('ESP Enabled')"},
+                  @{@"name": @"Fly Hack", @"author": @"V", @"code": @"print('Fly Mode On')"}
               ];
           }
           
           - (void)createFloatingButton {
-              // FAB Button - Circular cyan
               self.floatingButton = [[UIView alloc] initWithFrame:CGRectMake([UIScreen mainScreen].bounds.size.width - 70, 100, 50, 50)];
               self.floatingButton.backgroundColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
               self.floatingButton.layer.cornerRadius = 25;
-              self.floatingButton.layer.shadowColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:0.8].CGColor;
+              self.floatingButton.layer.shadowColor = [UIColor cyanColor].CGColor;
               self.floatingButton.layer.shadowRadius = 10;
               self.floatingButton.layer.shadowOpacity = 0.6;
-              self.floatingButton.layer.shadowOffset = CGSizeZero;
               
-              // L Logo inside FAB
               UILabel *logo = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 50, 50)];
               logo.text = @"L";
               logo.textAlignment = NSTextAlignmentCenter;
-              logo.font = [UIFont fontWithName:@"HelveticaNeue-Bold" size:28];
+              logo.font = [UIFont boldSystemFontOfSize:28];
               logo.textColor = [UIColor whiteColor];
               [self.floatingButton addSubview:logo];
               
-              // Close button (X) on FAB
-              UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-              closeBtn.frame = CGRectMake(35, -5, 25, 25);
-              closeBtn.backgroundColor = [UIColor redColor];
-              closeBtn.layer.cornerRadius = 12.5;
-              [closeBtn setTitle:@"X" forState:UIControlStateNormal];
-              [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-              closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
-              [closeBtn addTarget:self action:@selector(hideEverything) forControlEvents:UIControlEventTouchUpInside];
-              [self.floatingButton addSubview:closeBtn];
-              
-              // Drag gesture
-              UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleFloatingDrag:)];
-              [self.floatingButton addGestureRecognizer:pan];
-              
-              // Tap to expand
               UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(expandPanel)];
               [self.floatingButton addGestureRecognizer:tap];
+              
+              UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragFloating:)];
+              [self.floatingButton addGestureRecognizer:pan];
               
               [self.view addSubview:self.floatingButton];
           }
           
-          - (void)handleFloatingDrag:(UIPanGestureRecognizer *)gesture {
-              CGPoint translation = [gesture translationInView:self.view];
-              gesture.view.center = CGPointMake(gesture.view.center.x + translation.x, gesture.view.center.y + translation.y);
-              [gesture setTranslation:CGPointZero inView:self.view];
-              
-              // Boundary limits
-              CGRect bounds = self.view.bounds;
-              CGPoint center = gesture.view.center;
-              center.x = MAX(25, MIN(bounds.size.width - 25, center.x));
-              center.y = MAX(25, MIN(bounds.size.height - 25, center.y));
-              gesture.view.center = center;
-          }
-          
           - (void)createMainPanel {
-              // Blur background for glassmorphism effect
-              UIBlurEffect *blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
-              self.blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
-              self.blurView.frame = CGRectMake(20, 60, self.panelWidth, self.panelHeight);
-              self.blurView.layer.cornerRadius = 20;
-              self.blurView.layer.masksToBounds = YES;
-              self.blurView.layer.borderWidth = 1;
-              self.blurView.layer.borderColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:0.5].CGColor;
+              self.mainPanel = [[UIView alloc] initWithFrame:CGRectMake(20, 60, 350, 500)];
+              self.mainPanel.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.92];
+              self.mainPanel.layer.cornerRadius = 20;
+              self.mainPanel.layer.borderWidth = 1;
+              self.mainPanel.layer.borderColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:0.5].CGColor;
               
-              // Dark overlay inside
-              UIView *darkOverlay = [[UIView alloc] initWithFrame:self.blurView.bounds];
-              darkOverlay.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.85];
-              darkOverlay.layer.cornerRadius = 20;
-              [self.blurView.contentView addSubview:darkOverlay];
+              // Title bar
+              UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 350, 45)];
+              titleBar.backgroundColor = [UIColor colorWithRed:0.0 green:0.2 blue:0.3 alpha:0.9];
+              titleBar.layer.cornerRadius = 20;
+              titleBar.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
               
-              // Top bar with L logo
-              UIView *topBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.panelWidth, 50)];
-              topBar.backgroundColor = [UIColor colorWithRed:0.0 green:0.2 blue:0.3 alpha:0.9];
+              UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, 200, 25)];
+              titleLabel.text = @"LEGEND DELTA";
+              titleLabel.font = [UIFont boldSystemFontOfSize:18];
+              titleLabel.textColor = [UIColor whiteColor];
+              [titleBar addSubview:titleLabel];
               
-              UILabel *logoLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, 40, 30)];
+              UILabel *logoLabel = [[UILabel alloc] initWithFrame:CGRectMake(185, 5, 35, 35)];
               logoLabel.text = @"L";
-              logoLabel.font = [UIFont fontWithName:@"HelveticaNeue-Bold" size:24];
+              logoLabel.font = [UIFont boldSystemFontOfSize:24];
               logoLabel.textColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
-              logoLabel.layer.shadowColor = [UIColor cyanColor].CGColor;
-              logoLabel.layer.shadowRadius = 5;
-              logoLabel.layer.shadowOpacity = 0.8;
-              [topBar addSubview:logoLabel];
+              [titleBar addSubview:logoLabel];
               
-              UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(60, 10, 200, 30)];
-              title.text = @"LEGEND DELTA";
-              title.font = [UIFont fontWithName:@"HelveticaNeue-Bold" size:18];
-              title.textColor = [UIColor whiteColor];
-              [topBar addSubview:title];
-              
-              // Minimize button
               UIButton *minimizeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-              minimizeBtn.frame = CGRectMake(self.panelWidth - 45, 12, 30, 30);
+              minimizeBtn.frame = CGRectMake(310, 10, 30, 25);
               [minimizeBtn setTitle:@"_" forState:UIControlStateNormal];
               [minimizeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-              minimizeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:20];
               [minimizeBtn addTarget:self action:@selector(minimizePanel) forControlEvents:UIControlEventTouchUpInside];
-              [topBar addSubview:minimizeBtn];
+              [titleBar addSubview:minimizeBtn];
               
-              [self.blurView.contentView addSubview:topBar];
+              [self.mainPanel addSubview:titleBar];
               
-              // Right side vertical toolbar
-              [self createSideToolbar];
-              
-              // Create tabs container
-              [self createTabs];
-              
-              // Create Editor view
-              [self createEditorView];
-              
-              // Create Search/Browser view
-              [self createSearchView];
-              
-              // Create Settings view
-              [self createSettingsView];
-              
-              // Default to Editor tab
-              [self showEditorTab];
-              
-              // Drag to move panel
-              UIPanGestureRecognizer *panelPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePanelDrag:)];
-              [self.blurView addGestureRecognizer:panelPan];
-              
-              [self.view addSubview:self.blurView];
-          }
-          
-          - (void)createSideToolbar {
-              UIView *toolbar = [[UIView alloc] initWithFrame:CGRectMake(0, 50, 50, self.panelHeight - 50)];
-              toolbar.backgroundColor = [UIColor colorWithRed:0.0 green:0.1 blue:0.15 alpha:0.9];
-              
-              NSArray *icons = @[@"</>", @"🔍", @"⚙️", @"✕"];
-              NSArray *actions = @[@"showEditorTab", @"showSearchTab", @"showSettingsTab", @"minimizePanel"];
-              
-              for (int i = 0; i < 4; i++) {
-                  UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-                  btn.frame = CGRectMake(5, 10 + (i * 55), 40, 40);
-                  btn.backgroundColor = [UIColor clearColor];
-                  [btn setTitle:icons[i] forState:UIControlStateNormal];
-                  btn.titleLabel.font = [UIFont systemFontOfSize:18];
-                  [btn setTitleColor:[UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
-                  btn.layer.cornerRadius = 10;
-                  btn.tag = i;
-                  [btn addTarget:self action:NSSelectorFromString(actions[i]) forControlEvents:UIControlEventTouchUpInside];
-                  [toolbar addSubview:btn];
-              }
-              
-              [self.blurView.contentView addSubview:toolbar];
-          }
-          
-          - (void)createTabs {
-              // Tab bar
-              UIView *tabBar = [[UIView alloc] initWithFrame:CGRectMake(50, 50, self.panelWidth - 50, 40)];
-              tabBar.backgroundColor = [UIColor colorWithRed:0.0 green:0.05 blue:0.1 alpha:0.9];
-              
-              NSArray *tabs = @[@"Editor", @"Search", @"Settings"];
+              // Tab buttons
+              NSArray *tabNames = @[@"Editor", @"Search", @"Settings"];
               for (int i = 0; i < 3; i++) {
                   UIButton *tab = [UIButton buttonWithType:UIButtonTypeSystem];
-                  tab.frame = CGRectMake(5 + (i * 90), 5, 80, 30);
-                  [tab setTitle:tabs[i] forState:UIControlStateNormal];
+                  tab.frame = CGRectMake(60 + (i * 95), 50, 80, 30);
+                  [tab setTitle:tabNames[i] forState:UIControlStateNormal];
                   [tab setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-                  tab.titleLabel.font = [UIFont systemFontOfSize:14];
                   tab.tag = i;
                   [tab addTarget:self action:@selector(switchTab:) forControlEvents:UIControlEventTouchUpInside];
-                  [tabBar addSubview:tab];
+                  [self.mainPanel addSubview:tab];
               }
               
-              [self.blurView.contentView addSubview:tabBar];
-          }
-          
-          - (void)createEditorView {
-              self.codeEditor = [[UITextView alloc] initWithFrame:CGRectMake(60, 95, self.panelWidth - 70, self.panelHeight - 150)];
-              self.codeEditor.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.95];
+              // Code editor
+              self.codeEditor = [[UITextView alloc] initWithFrame:CGRectMake(10, 90, 330, 320)];
+              self.codeEditor.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.05 alpha:1.0];
               self.codeEditor.textColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
-              self.codeEditor.font = [UIFont fontWithName:@"Menlo" size:13];
+              self.codeEditor.font = [UIFont fontWithName:@"Menlo" size:12];
               self.codeEditor.layer.cornerRadius = 10;
-              self.codeEditor.layer.borderWidth = 1;
-              self.codeEditor.layer.borderColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:0.3].CGColor;
-              self.codeEditor.text = @"-- Join our Discord server to stay updated!\n-- https://discord.gg/legend\n-- Paste code here, or browse the search page.\n\nprint('Hello, world!')";
-              self.codeEditor.hidden = YES;
-              [self.blurView.contentView addSubview:self.codeEditor];
+              self.codeEditor.text = @"-- Legend Delta Executor\n-- Paste your script here\n\nprint('Hello World!')";
+              [self.mainPanel addSubview:self.codeEditor];
               
-              // Bottom action buttons
-              NSArray *buttons = @[@"Delete", @"Edit", @"Copy", @"Paste", @"Execute"];
-              NSArray *colors = @[[UIColor redColor], [UIColor orangeColor], [UIColor grayColor], [UIColor grayColor], [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0]];
+              // Execute button
+              UIButton *execBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+              execBtn.frame = CGRectMake(120, 420, 110, 40);
+              [execBtn setTitle:@"▶ EXECUTE" forState:UIControlStateNormal];
+              [execBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              execBtn.backgroundColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
+              execBtn.layer.cornerRadius = 20;
+              [execBtn addTarget:self action:@selector(executeScript) forControlEvents:UIControlEventTouchUpInside];
+              [self.mainPanel addSubview:execBtn];
               
-              for (int i = 0; i < 5; i++) {
-                  UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-                  btn.frame = CGRectMake(60 + (i * 65), self.panelHeight - 45, 60, 35);
-                  [btn setTitle:buttons[i] forState:UIControlStateNormal];
-                  [btn setTitleColor:colors[i] forState:UIControlStateNormal];
-                  btn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
-                  btn.backgroundColor = [UIColor colorWithWhite:0.2 alpha:0.8];
-                  btn.layer.cornerRadius = 8;
-                  btn.tag = i;
-                  [btn addTarget:self action:@selector(editorAction:) forControlEvents:UIControlEventTouchUpInside];
-                  [self.blurView.contentView addSubview:btn];
-              }
-          }
-          
-          - (void)createSearchView {
-              // Search bar
-              self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(60, 95, self.panelWidth - 70, 40)];
-              self.searchBar.placeholder = @"Search for scripts...";
-              self.searchBar.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.9];
-              self.searchBar.searchTextField.layer.borderWidth = 1;
-              self.searchBar.searchTextField.layer.borderColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:0.5].CGColor;
-              self.searchBar.searchTextField.layer.cornerRadius = 8;
+              // Search bar (hidden by default)
+              self.searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(10, 90, 330, 40)];
+              self.searchBar.placeholder = @"Search scripts...";
               self.searchBar.hidden = YES;
-              [self.blurView.contentView addSubview:self.searchBar];
+              [self.mainPanel addSubview:self.searchBar];
               
-              // Script table
-              self.scriptTable = [[UITableView alloc] initWithFrame:CGRectMake(60, 140, self.panelWidth - 70, self.panelHeight - 190) style:UITableViewStylePlain];
+              // Script table (hidden by default)
+              self.scriptTable = [[UITableView alloc] initWithFrame:CGRectMake(10, 140, 330, 320) style:UITableViewStylePlain];
               self.scriptTable.backgroundColor = [UIColor clearColor];
-              self.scriptTable.separatorColor = [UIColor colorWithWhite:0.2 alpha:0.5];
               self.scriptTable.delegate = self;
               self.scriptTable.dataSource = self;
               self.scriptTable.hidden = YES;
-              [self.blurView.contentView addSubview:self.scriptTable];
-          }
-          
-          - (void)createSettingsView {
-              UIView *settingsView = [[UIView alloc] initWithFrame:CGRectMake(60, 95, self.panelWidth - 70, self.panelHeight - 145)];
+              [self.mainPanel addSubview:self.scriptTable];
+              
+              // Settings panel (hidden by default)
+              UIView *settingsView = [[UIView alloc] initWithFrame:CGRectMake(10, 90, 330, 370)];
               settingsView.backgroundColor = [UIColor clearColor];
               settingsView.hidden = YES;
               
-              // UI Scale slider
-              UILabel *scaleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, 200, 25)];
+              UILabel *scaleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 20, 200, 30)];
               scaleLabel.text = @"UI Scale: 100%";
               scaleLabel.textColor = [UIColor whiteColor];
-              scaleLabel.font = [UIFont systemFontOfSize:14];
               [settingsView addSubview:scaleLabel];
               
-              UISlider *scaleSlider = [[UISlider alloc] initWithFrame:CGRectMake(10, 40, 250, 30)];
+              UISlider *scaleSlider = [[UISlider alloc] initWithFrame:CGRectMake(10, 50, 300, 30)];
               scaleSlider.minimumValue = 0.8;
               scaleSlider.maximumValue = 1.5;
               scaleSlider.value = 1.0;
@@ -306,196 +167,111 @@ jobs:
               [scaleSlider addTarget:self action:@selector(changeScale:) forControlEvents:UIControlEventValueChanged];
               [settingsView addSubview:scaleSlider];
               
-              // Corner radius slider
-              UILabel *radiusLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 80, 200, 25)];
-              radiusLabel.text = @"Corner Radius: 20px";
-              radiusLabel.textColor = [UIColor whiteColor];
-              radiusLabel.font = [UIFont systemFontOfSize:14];
-              [settingsView addSubview:radiusLabel];
-              
-              UISlider *radiusSlider = [[UISlider alloc] initWithFrame:CGRectMake(10, 110, 250, 30)];
-              radiusSlider.minimumValue = 5;
-              radiusSlider.maximumValue = 50;
-              radiusSlider.value = 20;
-              radiusSlider.tintColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
-              [radiusSlider addTarget:self action:@selector(changeRadius:) forControlEvents:UIControlEventValueChanged];
-              [settingsView addSubview:radiusSlider];
-              
-              // Toggle switches
-              UISwitch *borderSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(10, 160, 50, 30)];
+              UISwitch *borderSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(10, 100, 50, 30)];
               borderSwitch.on = YES;
               borderSwitch.onTintColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
               [borderSwitch addTarget:self action:@selector(toggleBorder:) forControlEvents:UIControlEventValueChanged];
               [settingsView addSubview:borderSwitch];
               
-              UILabel *borderLabel = [[UILabel alloc] initWithFrame:CGRectMake(70, 160, 150, 30)];
+              UILabel *borderLabel = [[UILabel alloc] initWithFrame:CGRectMake(70, 105, 150, 30)];
               borderLabel.text = @"Window Borders";
               borderLabel.textColor = [UIColor whiteColor];
               [settingsView addSubview:borderLabel];
               
-              UISwitch *glowSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(10, 200, 50, 30)];
+              UISwitch *glowSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(10, 150, 50, 30)];
               glowSwitch.on = YES;
               glowSwitch.onTintColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
               [settingsView addSubview:glowSwitch];
               
-              UILabel *glowLabel = [[UILabel alloc] initWithFrame:CGRectMake(70, 200, 150, 30)];
+              UILabel *glowLabel = [[UILabel alloc] initWithFrame:CGRectMake(70, 155, 150, 30)];
               glowLabel.text = @"Animate Glows";
               glowLabel.textColor = [UIColor whiteColor];
               [settingsView addSubview:glowLabel];
               
-              UISwitch *syntaxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(10, 240, 50, 30)];
-              syntaxSwitch.on = YES;
-              syntaxSwitch.onTintColor = [UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0];
-              [settingsView addSubview:syntaxSwitch];
+              [self.mainPanel addSubview:settingsView];
               
-              UILabel *syntaxLabel = [[UILabel alloc] initWithFrame:CGRectMake(70, 240, 150, 30)];
-              syntaxLabel.text = @"Syntax Highlighting";
-              syntaxLabel.textColor = [UIColor whiteColor];
-              [settingsView addSubview:syntaxLabel];
+              // Drag to move panel
+              UIPanGestureRecognizer *panelPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(dragPanel:)];
+              [self.mainPanel addGestureRecognizer:panelPan];
               
-              [self.blurView.contentView addSubview:settingsView];
+              [self.view addSubview:self.mainPanel];
           }
           
-          - (void)setupRobloxConnection {
-              WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
-              self.webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
-              self.webView.navigationDelegate = self;
-              // This would connect to Roblox's WebView for script execution
-          }
-          
-          - (void)executeScript:(NSString *)script {
-              // This is where the actual Roblox execution happens
-              // For now, show success notification
-              [self showNotification:[NSString stringWithFormat:@"✅ Successfully executed script!"]];
-              printf("Executing: %s\n", [script UTF8String]);
+          - (void)executeScript {
+              NSString *code = self.codeEditor.text;
+              printf("Executing: %s\n", [code UTF8String]);
               
-              // In real implementation, you would:
-              // 1. Find Roblox's Lua state in memory
-              // 2. Call luaL_loadstring
-              // 3. Call lua_pcall
-          }
-          
-          - (void)showNotification:(NSString *)message {
-              UIView *notification = [[UIView alloc] initWithFrame:CGRectMake(10, 70, self.panelWidth - 20, 40)];
-              notification.backgroundColor = [UIColor colorWithRed:0.0 green:0.78 blue:0.33 alpha:0.9];
-              notification.layer.cornerRadius = 10;
+              // Show success notification
+              UIView *notify = [[UIView alloc] initWithFrame:CGRectMake(10, 55, 330, 35)];
+              notify.backgroundColor = [UIColor colorWithRed:0.0 green:0.78 blue:0.33 alpha:0.9];
+              notify.layer.cornerRadius = 10;
               
-              UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 10, notification.frame.size.width - 20, 20)];
-              label.text = message;
+              UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10, 8, 310, 20)];
+              label.text = @"✅ Script executed successfully!";
               label.textColor = [UIColor whiteColor];
               label.font = [UIFont boldSystemFontOfSize:12];
               label.textAlignment = NSTextAlignmentCenter;
-              [notification addSubview:label];
+              [notify addSubview:label];
               
-              [self.blurView.contentView addSubview:notification];
+              [self.mainPanel addSubview:notify];
               
-              [UIView animateWithDuration:2.5 animations:^{
-                  notification.alpha = 0;
+              [UIView animateWithDuration:2.0 animations:^{
+                  notify.alpha = 0;
               } completion:^(BOOL finished) {
-                  [notification removeFromSuperview];
+                  [notify removeFromSuperview];
               }];
           }
           
-          // MARK: - TableView DataSource
+          // TableView methods
           - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
               return self.scripts.count;
           }
           
           - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-              UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"ScriptCell"];
+              UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Cell"];
               if (!cell) {
-                  cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"ScriptCell"];
+                  cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
                   cell.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.15 alpha:0.9];
                   cell.textLabel.textColor = [UIColor whiteColor];
                   cell.detailTextLabel.textColor = [UIColor lightGrayColor];
-                  
-                  // Execute button
-                  UIButton *execBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-                  execBtn.frame = CGRectMake(self.panelWidth - 120, 10, 80, 30);
-                  [execBtn setTitle:@"▶ RUN" forState:UIControlStateNormal];
-                  [execBtn setTitleColor:[UIColor colorWithRed:0.0 green:0.831 blue:1.0 alpha:1.0] forState:UIControlStateNormal];
-                  execBtn.backgroundColor = [UIColor colorWithRed:0.0 green:0.3 blue:0.4 alpha:0.8];
-                  execBtn.layer.cornerRadius = 8;
-                  execBtn.tag = indexPath.row;
-                  [execBtn addTarget:self action:@selector(runScriptFromTable:) forControlEvents:UIControlEventTouchUpInside];
-                  [cell.contentView addSubview:execBtn];
               }
-              
               NSDictionary *script = self.scripts[indexPath.row];
-              cell.textLabel.text = script[@"title"];
-              cell.detailTextLabel.text = [NSString stringWithFormat:@"👤 %@  ❤️ %@  👁️ %@", script[@"author"], script[@"likes"], script[@"views"]];
-              
+              cell.textLabel.text = script[@"name"];
+              cell.detailTextLabel.text = [NSString stringWithFormat:@"by %@", script[@"author"]];
               return cell;
           }
           
-          - (void)runScriptFromTable:(UIButton *)sender {
-              NSDictionary *script = self.scripts[sender.tag];
-              [self executeScript:script[@"code"]];
-          }
-          
-          - (void)editorAction:(UIButton *)sender {
-              switch (sender.tag) {
-                  case 0: // Delete
-                      self.codeEditor.text = @"";
-                      break;
-                  case 1: // Edit
-                      [self.codeEditor becomeFirstResponder];
-                      break;
-                  case 2: // Copy
-                      [UIPasteboard generalPasteboard].string = self.codeEditor.text;
-                      [self showNotification:@"📋 Copied to clipboard!"];
-                      break;
-                  case 3: // Paste
-                      self.codeEditor.text = [UIPasteboard generalPasteboard].string;
-                      break;
-                  case 4: // Execute
-                      [self executeScript:self.codeEditor.text];
-                      break;
-              }
+          - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+              NSDictionary *script = self.scripts[indexPath.row];
+              self.codeEditor.text = script[@"code"];
+              [self switchTab:[self.mainPanel viewWithTag:0]];
+              [tableView deselectRowAtIndexPath:indexPath animated:YES];
           }
           
           - (void)switchTab:(UIButton *)sender {
-              [self showEditorTab];
-              [self showSearchTab];
-              [self showSettingsTab];
-              
-              switch (sender.tag) {
-                  case 0:
-                      [self showEditorTab];
-                      break;
-                  case 1:
-                      [self showSearchTab];
-                      break;
-                  case 2:
-                      [self showSettingsTab];
-                      break;
-              }
-          }
-          
-          - (void)showEditorTab {
-              self.codeEditor.hidden = NO;
+              // Hide all panels
+              self.codeEditor.hidden = YES;
               self.searchBar.hidden = YES;
               self.scriptTable.hidden = YES;
-              for (UIView *view in self.blurView.contentView.subviews) {
-                  if (view.frame.origin.x == 60 && view.frame.size.height > 200 && view != self.codeEditor) {
+              
+              for (UIView *view in self.mainPanel.subviews) {
+                  if (view.frame.origin.y == 90 && view.frame.size.height > 300 && view != self.codeEditor) {
                       view.hidden = YES;
                   }
               }
-          }
-          
-          - (void)showSearchTab {
-              self.codeEditor.hidden = YES;
-              self.searchBar.hidden = NO;
-              self.scriptTable.hidden = NO;
-          }
-          
-          - (void)showSettingsTab {
-              self.codeEditor.hidden = YES;
-              self.searchBar.hidden = YES;
-              self.scriptTable.hidden = YES;
-              for (UIView *view in self.blurView.contentView.subviews) {
-                  if (view.frame.origin.x == 60 && view.frame.size.height > 200 && view != self.codeEditor) {
-                      view.hidden = NO;
+              
+              // Show selected panel
+              if (sender.tag == 0) {
+                  self.codeEditor.hidden = NO;
+              } else if (sender.tag == 1) {
+                  self.searchBar.hidden = NO;
+                  self.scriptTable.hidden = NO;
+              } else if (sender.tag == 2) {
+                  for (UIView *view in self.mainPanel.subviews) {
+                      if (view.frame.origin.y == 90 && view.frame.size.height > 300 && view != self.codeEditor) {
+                          view.hidden = NO;
+                          break;
+                      }
                   }
               }
           }
@@ -504,89 +280,75 @@ jobs:
               self.isMinimized = NO;
               self.floatingButton.hidden = YES;
               self.mainPanel.hidden = NO;
-              [UIView animateWithDuration:0.3 animations:^{
-                  self.blurView.alpha = 1;
-                  self.blurView.transform = CGAffineTransformIdentity;
-              }];
           }
           
           - (void)minimizePanel {
               self.isMinimized = YES;
               self.floatingButton.hidden = NO;
               self.mainPanel.hidden = YES;
-              [UIView animateWithDuration:0.3 animations:^{
-                  self.blurView.alpha = 0;
-                  self.blurView.transform = CGAffineTransformMakeScale(0.01, 0.01);
-              }];
           }
           
-          - (void)hideEverything {
-              self.floatingButton.hidden = YES;
-              self.blurView.hidden = YES;
+          - (void)dragFloating:(UIPanGestureRecognizer *)gesture {
+              CGPoint translation = [gesture translationInView:self.view];
+              gesture.view.center = CGPointMake(gesture.view.center.x + translation.x, gesture.view.center.y + translation.y);
+              [gesture setTranslation:CGPointZero inView:self.view];
+              
+              CGRect bounds = self.view.bounds;
+              CGPoint center = gesture.view.center;
+              center.x = MAX(25, MIN(bounds.size.width - 25, center.x));
+              center.y = MAX(25, MIN(bounds.size.height - 25, center.y));
+              gesture.view.center = center;
           }
           
-          - (void)handlePanelDrag:(UIPanGestureRecognizer *)gesture {
-              if (gesture.state == UIGestureRecognizerStateChanged) {
-                  CGPoint translation = [gesture translationInView:self.view];
-                  gesture.view.center = CGPointMake(gesture.view.center.x + translation.x, gesture.view.center.y + translation.y);
-                  [gesture setTranslation:CGPointZero inView:self.view];
-              }
+          - (void)dragPanel:(UIPanGestureRecognizer *)gesture {
+              CGPoint translation = [gesture translationInView:self.view];
+              gesture.view.center = CGPointMake(gesture.view.center.x + translation.x, gesture.view.center.y + translation.y);
+              [gesture setTranslation:CGPointZero inView:self.view];
           }
           
           - (void)changeScale:(UISlider *)sender {
               CGFloat scale = sender.value;
-              self.blurView.transform = CGAffineTransformMakeScale(scale, scale);
-          }
-          
-          - (void)changeRadius:(UISlider *)sender {
-              self.blurView.layer.cornerRadius = sender.value;
+              self.mainPanel.transform = CGAffineTransformMakeScale(scale, scale);
           }
           
           - (void)toggleBorder:(UISwitch *)sender {
-              self.blurView.layer.borderWidth = sender.on ? 1 : 0;
+              self.mainPanel.layer.borderWidth = sender.on ? 1 : 0;
           }
           
           @end
           
-          // App entry point
-          static void __attribute__((constructor)) init() {
+          __attribute__((constructor)) static void init() {
               dispatch_async(dispatch_get_main_queue(), ^{
                   UIWindow *window = [[UIApplication sharedApplication] keyWindow];
                   LegendDelta *executor = [[LegendDelta alloc] init];
                   executor.view.frame = window.bounds;
-                  [window.rootViewController addChildViewController:executor];
                   [window addSubview:executor.view];
               });
           }
           EOF
       
-      - name: Compile dylib for arm64 iOS
+      - name: Compile dylib
         run: |
-          echo "Compiling Legend Delta Executor..."
-          clang++ -dynamiclib \
+          clang -dynamiclib \
             -arch arm64 \
             -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
-            -miphoneos-version-min=13.0 \
             -framework Foundation \
             -framework UIKit \
             -framework CoreGraphics \
-            -framework QuartzCore \
-            -framework WebKit \
-            -ObjC++ \
             -fobjc-arc \
             -o LegendDelta.dylib \
-            LegendDelta.mm
+            LegendDelta.m
           
           if [ -f LegendDelta.dylib ]; then
-            echo "✅ Compilation successful!"
+            echo "✅ Success!"
             file LegendDelta.dylib
           else
-            echo "❌ Compilation failed!"
+            echo "❌ Failed"
             exit 1
           fi
       
-      - name: Upload dylib artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: LegendDelta-Executor
+          name: LegendDelta-Dylib
           path: LegendDelta.dylib
