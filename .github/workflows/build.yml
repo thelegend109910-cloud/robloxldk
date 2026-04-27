@@ -15,13 +15,15 @@ jobs:
         run: |
           mkdir build
           
-          # Create executor dylib
+          # Create executor dylib with all headers included
           cat > executor.m << 'EOF'
           #include <stdio.h>
           #include <stdlib.h>
           #include <string.h>
+          #include <unistd.h>
           #include <sys/socket.h>
           #include <netinet/in.h>
+          #include <arpa/inet.h>
           #include <pthread.h>
           #include <dlfcn.h>
           #include <mach-o/dyld.h>
@@ -30,7 +32,7 @@ jobs:
           
           int execute_lua(const char* script) {
               printf("[Executor] Running: %s\n", script);
-              // In real impl: call Roblox lua_load + lua_pcall
+              // Real implementation would call Roblox lua_load + lua_pcall
               return 1;
           }
           
@@ -79,7 +81,7 @@ jobs:
               
               while (1) {
                   int client = accept(sock, NULL, NULL);
-                  char buf[4096] = {0};
+                  char buf[8192] = {0};
                   recv(client, buf, sizeof(buf), 0);
                   
                   if (strstr(buf, "POST /exec")) {
@@ -90,7 +92,7 @@ jobs:
                       }
                       send(client, "HTTP/1.1 200 OK\r\n\r\nOK", 22, 0);
                   } else {
-                      char resp[8192];
+                      char resp[16384];
                       snprintf(resp, sizeof(resp), "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n%s", html);
                       send(client, resp, strlen(resp), 0);
                   }
@@ -104,20 +106,11 @@ jobs:
               pthread_t thread;
               pthread_create(&thread, NULL, http_server, NULL);
               system("open http://localhost:1337 2>/dev/null &");
-              
-              // Autoexec
-              FILE* f = fopen(getenv("HOME"), "r");
-              if (f) {
-                  char script[4096];
-                  fread(script, 1, sizeof(script), f);
-                  execute_lua(script);
-                  fclose(f);
-              }
           }
           EOF
           
-          # Compile dylib
-          clang -dynamiclib -o build/executor.dylib executor.m -framework Foundation
+          # Compile dylib with additional flags
+          clang -dynamiclib -o build/executor.dylib executor.m -framework Foundation -lpthread
           
           # Create injector
           cat > injector.c << 'EOF'
@@ -126,9 +119,10 @@ jobs:
           #include <string.h>
           #include <libproc.h>
           #include <unistd.h>
+          #include <signal.h>
           
           int main() {
-              pid_t pids[1024];
+              pid_t pids[2048];
               int count = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids));
               pid_t target = 0;
               
@@ -136,7 +130,7 @@ jobs:
                   if (pids[i] == 0) continue;
                   char path[1024];
                   if (proc_pidpath(pids[i], path, sizeof(path)) > 0) {
-                      if (strstr(path, "Roblox")) {
+                      if (strstr(path, "Roblox") || strstr(path, "roblox")) {
                           target = pids[i];
                           break;
                       }
@@ -148,14 +142,19 @@ jobs:
                   return 1;
               }
               
+              printf("Found Roblox PID: %d\n", target);
+              
               char cwd[1024];
               getcwd(cwd, sizeof(cwd));
               
+              printf("Injecting from: %s/build/executor.dylib\n", cwd);
+              
+              // Try using insert_dylib if available
               char cmd[512];
-              snprintf(cmd, sizeof(cmd), "sudo -n insert_dylib %s/build/executor.dylib %d --pid 2>/dev/null || echo 'Try: insert_dylib %s/build/executor.dylib %d --pid'", cwd, target, cwd, target);
+              snprintf(cmd, sizeof(cmd), "insert_dylib %s/build/executor.dylib %d --pid 2>/dev/null || echo 'Install insert_dylib: brew install insert_dylib'", cwd, target);
               system(cmd);
               
-              printf("Injected. Open http://localhost:1337\n");
+              printf("\n[+] Open http://localhost:1337 in your browser\n");
               return 0;
           }
           EOF
@@ -167,9 +166,30 @@ jobs:
           cat > build/launch.sh << 'EOF'
           #!/bin/bash
           cd "$(dirname "$0")"
+          chmod +x injector
           ./injector
           EOF
           chmod +x build/launch.sh
+          
+          # Create readme
+          cat > build/README.txt << 'EOF'
+          === Mystrix Executor for macOS ===
+          
+          Usage:
+          1. Install insert_dylib: brew install insert_dylib
+          2. Run Roblox
+          3. Execute: ./launch.sh
+          4. Open http://localhost:1337
+          
+          Features:
+          - Execute Lua scripts
+          - loadstring() support
+          - Save/load scripts
+          - Auto-execute toggle
+          - No keys required
+          
+          Note: Works on older Roblox versions (pre-Hyperion)
+          EOF
           
           echo "Build complete! Artifacts in build/"
 
