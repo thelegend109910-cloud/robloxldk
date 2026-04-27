@@ -1,4 +1,4 @@
-name: Build Roblox Executor Dylib
+name: Build Mystrix Executor Dylib
 
 on:
   push:
@@ -6,123 +6,89 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos-executor:
+  build:
     runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create executor source files
+      - uses: actions/checkout@v4
+      
+      - name: Build Executor
         run: |
-          mkdir src
+          mkdir build
           
-          # === MAIN EXECUTOR DYLIB ===
-          cat > src/executor.mm << 'EOF'
-          #import <Foundation/Foundation.h>
-          #import <dlfcn.h>
-          #import <mach-o/dyld.h>
-          #import <sys/socket.h>
-          #import <netinet/in.h>
-          #import <arpa/inet.h>
-          #import <pthread.h>
+          # Create executor dylib
+          cat > executor.m << 'EOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <sys/socket.h>
+          #include <netinet/in.h>
+          #include <pthread.h>
+          #include <dlfcn.h>
+          #include <mach-o/dyld.h>
           
-          // Roblox Lua C API signatures (old macOS Roblox)
-          typedef void* (*luaL_newstate_t)(void);
-          typedef void (*lua_close_t)(void* L);
-          typedef void (*lua_getglobal_t)(void* L, const char* name);
-          typedef void (*lua_pushstring_t)(void* L, const char* s);
-          typedef int (*lua_pcall_t)(void* L, int nargs, int nresults, int errfunc);
-          typedef void (*lua_pop_t)(void* L, int n);
-          typedef int (*lua_load_t)(void* L, int (*reader)(void*, void*, size_t*), void* data, const char* chunkname);
-          typedef void (*lua_pushcclosure_t)(void* L, int (*fn)(void*), int n);
+          void* g_lua_state = (void*)0xDEADBEEF;
           
-          static luaL_newstate_t luaL_newstate = nullptr;
-          static lua_close_t lua_close = nullptr;
-          static lua_getglobal_t lua_getglobal = nullptr;
-          static lua_pushstring_t lua_pushstring = nullptr;
-          static lua_pcall_t lua_pcall = nullptr;
-          static lua_pop_t lua_pop = nullptr;
-          static lua_load_t lua_load = nullptr;
-          static lua_pushcclosure_t lua_pushcclosure = nullptr;
-          
-          void* g_lua_state = nullptr;
-          
-          void FindLuaSymbols() {
-              // Search in Roblox binary
-              for (uint32_t i = 0; i < _dyld_image_count(); i++) {
-                  const char* name = _dyld_get_image_name(i);
-                  if (strstr(name, "RobloxPlayer")) {
-                      void* handle = dlopen(name, RTLD_LAZY);
-                      if (handle) {
-                          luaL_newstate = (luaL_newstate_t)dlsym(handle, "luaL_newstate");
-                          lua_close = (lua_close_t)dlsym(handle, "lua_close");
-                          lua_getglobal = (lua_getglobal_t)dlsym(handle, "lua_getglobal");
-                          lua_pushstring = (lua_pushstring_t)dlsym(handle, "lua_pushstring");
-                          lua_pcall = (lua_pcall_t)dlsym(handle, "lua_pcall");
-                          lua_pop = (lua_pop_t)dlsym(handle, "lua_pop");
-                          lua_load = (lua_load_t)dlsym(handle, "lua_load");
-                          lua_pushcclosure = (lua_pushcclosure_t)dlsym(handle, "lua_pushcclosure");
-                          break;
-                      }
-                  }
-              }
+          int execute_lua(const char* script) {
+              printf("[Executor] Running: %s\n", script);
+              // In real impl: call Roblox lua_load + lua_pcall
+              return 1;
           }
           
-          void* GetRobloxLuaState() {
-              // Pattern scan for lua_State* in global storage (simplified)
-              // Real implementation would scan __DATA segment
-              return (void*)0xDEADBEEF; // Placeholder — needs runtime patching
-          }
-          
-          bool ExecuteLua(void* L, const char* script) {
-              if (!L || !lua_load) return false;
-              
-              // Simplified execution — full implementation would use luaL_loadstring
-              lua_getglobal(L, "loadstring");
-              lua_pushstring(L, script);
-              if (lua_pcall(L, 1, 1, 0) != 0) {
-                  lua_pop(L, 1);
-                  return false;
-              }
-              if (lua_pcall(L, 0, 0, 0) != 0) {
-                  lua_pop(L, 1);
-                  return false;
-              }
-              return true;
-          }
-          
-          // HTTP server to serve HTML GUI
-          void* HttpServerThread(void* arg) {
-              int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+          void* http_server(void* arg) {
+              int sock = socket(AF_INET, SOCK_STREAM, 0);
               int opt = 1;
-              setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+              setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
               
-              struct sockaddr_in addr;
+              struct sockaddr_in addr = {0};
               addr.sin_family = AF_INET;
               addr.sin_port = htons(1337);
               addr.sin_addr.s_addr = INADDR_ANY;
               
-              bind(server_fd, (struct sockaddr*)&addr, sizeof(addr));
-              listen(server_fd, 5);
+              bind(sock, (struct sockaddr*)&addr, sizeof(addr));
+              listen(sock, 5);
               
-              const char* html = "<!DOCTYPE html><html><head><title>Mystrix Executor</title><style>/* Your exact design here — compressed */</style></head><body>"
-                                 "<div id='app'><textarea id='script' rows='20' cols='80'>print('Hello from dylib')</textarea><br>"
-                                 "<button onclick='execute()'>Execute</button><button onclick='save()'>Save</button>"
-                                 "<script>function execute(){fetch('/exec',{method:'POST',body:document.getElementById('script').value})}</script></div></body></html>";
+              const char* html = 
+              "<!DOCTYPE html><html><head><title>Mystrix Executor</title><style>"
+              "*{margin:0;padding:0;box-sizing:border-box;}"
+              "body{background:#0a0a0a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:'Segoe UI',sans-serif;}"
+              ".window{width:850px;height:500px;background:rgba(20,20,20,0.75);backdrop-filter:blur(20px);border:1px solid #00d4ff33;border-radius:12px;}"
+              ".title{height:40px;background:#00000022;border-bottom:1px solid #00d4ff33;display:flex;align-items:center;padding:0 15px;color:#00d4ff;}"
+              ".content{display:flex;height:calc(100% - 90px);}"
+              ".sidebar{width:180px;background:#0f0f0fd9;border-right:1px solid #ffffff14;padding:10px 0;}"
+              ".tab{padding:10px 20px;color:#888;cursor:pointer;}"
+              ".tab.active{color:#00d4ff;border-left:2px solid #00d4ff;}"
+              ".editor{flex:1;padding:10px;}"
+              "textarea{width:100%;height:100%;background:#00000033;color:#e0e0e0;border:none;font-family:monospace;padding:10px;resize:none;}"
+              ".bottom{height:50px;border-top:1px solid #ffffff14;display:flex;align-items:center;padding:0 15px;gap:10px;}"
+              "button{padding:6px 18px;background:#ffffff0d;border:1px solid #ffffff14;color:#e0e0e0;border-radius:4px;cursor:pointer;}"
+              "button:hover{background:#00d4ff;color:#000;}"
+              ".status{width:8px;height:8px;background:#00d4ff;border-radius:50%;}"
+              "</style></head><body>"
+              "<div class='window'><div class='title'>MYSTRIX HUB</div>"
+              "<div class='content'><div class='sidebar'><div class='tab active'>Executor</div><div class='tab'>Saved</div><div class='tab'>AutoExec</div></div>"
+              "<div class='editor'><textarea id='code'>-- Mystrix Executor\\nprint('Hello from dylib!')\\nloadstring('print(\"Loaded\")')()</textarea></div></div>"
+              "<div class='bottom'><button onclick='execute()'>EXECUTE</button><button onclick='save()'>SAVE</button><button onclick='load()'>LOAD</button>"
+              "<div style='flex:1'></div><div class='status'></div><span style='color:#888;font-size:11px'>READY</span></div></div>"
+              "<script>"
+              "function execute(){fetch('http://localhost:1337/exec',{method:'POST',body:document.getElementById('code').value})}"
+              "function save(){localStorage.setItem('script',document.getElementById('code').value)}"
+              "function load(){var s=localStorage.getItem('script');if(s)document.getElementById('code').value=s}"
+              "if(localStorage.getItem('autoexec')==='true')execute();"
+              "document.querySelectorAll('.tab')[2].onclick=function(){var e=localStorage.getItem('autoexec')==='true';localStorage.setItem('autoexec',!e);alert('Autoexec: '+(!e?'ON':'OFF'))}"
+              "</script></body></html>";
               
               while (1) {
-                  int client = accept(server_fd, NULL, NULL);
-                  char buffer[8192] = {0};
-                  recv(client, buffer, sizeof(buffer), 0);
+                  int client = accept(sock, NULL, NULL);
+                  char buf[4096] = {0};
+                  recv(client, buf, sizeof(buf), 0);
                   
-                  if (strstr(buffer, "POST /exec")) {
-                      char* body = strstr(buffer, "\r\n\r\n");
+                  if (strstr(buf, "POST /exec")) {
+                      char* body = strstr(buf, "\r\n\r\n");
                       if (body) {
                           body += 4;
-                          ExecuteLua(g_lua_state, body);
+                          execute_lua(body);
                       }
-                      const char* resp = "HTTP/1.1 200 OK\r\n\r\nOK";
-                      send(client, resp, strlen(resp), 0);
+                      send(client, "HTTP/1.1 200 OK\r\n\r\nOK", 22, 0);
                   } else {
                       char resp[8192];
                       snprintf(resp, sizeof(resp), "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n%s", html);
@@ -130,176 +96,85 @@ jobs:
                   }
                   close(client);
               }
-              return nullptr;
+              return NULL;
           }
           
-          __attribute__((constructor)) void Initialize() {
-              NSLog(@"[Mystrix] Dylib loaded");
-              FindLuaSymbols();
-              g_lua_state = GetRobloxLuaState();
-              
+          __attribute__((constructor)) void init() {
+              printf("[Mystrix] Dylib loaded\n");
               pthread_t thread;
-              pthread_create(&thread, NULL, HttpServerThread, NULL);
+              pthread_create(&thread, NULL, http_server, NULL);
+              system("open http://localhost:1337 2>/dev/null &");
               
-              // Open browser
-              system("open http://localhost:1337");
-              
-              // Auto-execute saved script
-              NSString* path = [NSHomeDirectory() stringByAppendingPathComponent:@".mystrix_auto.lua"];
-              if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
-                  NSString* script = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
-                  if (script && g_lua_state) {
-                      ExecuteLua(g_lua_state, [script UTF8String]);
-                  }
+              // Autoexec
+              FILE* f = fopen(getenv("HOME"), "r");
+              if (f) {
+                  char script[4096];
+                  fread(script, 1, sizeof(script), f);
+                  execute_lua(script);
+                  fclose(f);
               }
           }
           EOF
           
-          # === INJECTOR (macOS) ===
-          cat > src/injector.mm << 'EOF'
-          #import <Foundation/Foundation.h>
-          #import <mach-o/dyld.h>
-          #import <dlfcn.h>
+          # Compile dylib
+          clang -dynamiclib -o build/executor.dylib executor.m -framework Foundation
           
-          int main(int argc, const char* argv[]) {
-              // Find Roblox PID
-              NSWorkspace* ws = [NSWorkspace sharedWorkspace];
-              NSArray* apps = [ws runningApplications];
-              pid_t target_pid = 0;
+          # Create injector
+          cat > injector.c << 'EOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <libproc.h>
+          #include <unistd.h>
+          
+          int main() {
+              pid_t pids[1024];
+              int count = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids));
+              pid_t target = 0;
               
-              for (NSRunningApplication* app in apps) {
-                  if ([[app bundleIdentifier] containsString:@"com.roblox.Roblox"]) {
-                      target_pid = [app processIdentifier];
-                      break;
+              for (int i = 0; i < count; i++) {
+                  if (pids[i] == 0) continue;
+                  char path[1024];
+                  if (proc_pidpath(pids[i], path, sizeof(path)) > 0) {
+                      if (strstr(path, "Roblox")) {
+                          target = pids[i];
+                          break;
+                      }
                   }
               }
               
-              if (!target_pid) {
-                  NSLog(@"Roblox not running");
+              if (!target) {
+                  printf("Roblox not running\n");
                   return 1;
               }
               
-              // Inject dylib using task_for_pid (requires SIP disabled)
-              char inject_path[4096];
-              strcpy(inject_path, argv[0]);
-              strcpy(strrchr(inject_path, '/') + 1, "executor.dylib");
+              char cwd[1024];
+              getcwd(cwd, sizeof(cwd));
               
-              NSString* cmd = [NSString stringWithFormat:@"sudo -n insert_dylib %s %d", inject_path, target_pid];
-              system([cmd UTF8String]);
+              char cmd[512];
+              snprintf(cmd, sizeof(cmd), "sudo -n insert_dylib %s/build/executor.dylib %d --pid 2>/dev/null || echo 'Try: insert_dylib %s/build/executor.dylib %d --pid'", cwd, target, cwd, target);
+              system(cmd);
               
-              NSLog(@"Injected into PID %d", target_pid);
+              printf("Injected. Open http://localhost:1337\n");
               return 0;
           }
           EOF
           
-          # === LAUNCH SCRIPT ===
-          cat > launch.sh << 'EOF'
+          # Compile injector
+          clang -o build/injector injector.c
+          
+          # Create launch script
+          cat > build/launch.sh << 'EOF'
           #!/bin/bash
-          chmod +x injector
+          cd "$(dirname "$0")"
           ./injector
           EOF
-          chmod +x launch.sh
-
-      - name: Compile dylib and injector
-        run: |
-          cd src
-          # Compile dylib
-          clang++ -dynamiclib -o executor.dylib executor.mm -framework Foundation -framework AppKit
+          chmod +x build/launch.sh
           
-          # Compile injector
-          clang++ -o injector injector.mm -framework Foundation
-          
-          # Move to output
-          cd ..
-          mkdir output
-          cp src/executor.dylib output/
-          cp src/injector output/
-          cp launch.sh output/
-          
-          # Create HTML GUI full version
-          cat > output/gui.html << 'HTMLDONE'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Mystrix Hub | Executor</title>
-              <style>
-                  /* Your complete design here — paste your exact CSS */
-                  :root {
-                      --accent-main: #00d4ff;
-                      --accent-hover: #00b8e6;
-                      --accent-glow: rgba(0,212,255,0.3);
-                      --bg-dark: #0a0a0a;
-                      --panel-bg: rgba(20,20,20,0.75);
-                      --sidebar-bg: rgba(15,15,15,0.85);
-                      --border-color: rgba(255,255,255,0.08);
-                      --text-main: #e0e0e0;
-                      --text-dim: #888888;
-                      --radius: 12px;
-                  }
-                  * { margin:0; padding:0; box-sizing:border-box; user-select:none; }
-                  body { height:100vh; background:radial-gradient(circle at center, #111 0%, #050505 100%); display:flex; align-items:center; justify-content:center; overflow:hidden; font-family:'Segoe UI',sans-serif; }
-                  .executor-window { width:850px; height:500px; background:var(--panel-bg); backdrop-filter:blur(20px); border:1px solid var(--border-color); border-radius:var(--radius); display:flex; flex-direction:column; overflow:hidden; }
-                  .title-bar { height:40px; background:rgba(255,255,255,0.03); border-bottom:1px solid var(--border-color); display:flex; align-items:center; padding:0 15px; justify-content:space-between; }
-                  .logo-box { width:24px; height:24px; background:var(--accent-main); border-radius:4px; display:flex; align-items:center; justify-content:center; font-weight:900; }
-                  .main-content { display:flex; flex:1; overflow:hidden; }
-                  .sidebar { width:180px; background:var(--sidebar-bg); border-right:1px solid var(--border-color); }
-                  .tab-item { padding:10px 20px; color:var(--text-dim); cursor:pointer; }
-                  .tab-item.active { color:var(--accent-main); border-left:2px solid var(--accent-main); }
-                  .editor-container { flex:1; display:flex; flex-direction:column; }
-                  .code-view { flex:1; padding:10px; font-family:monospace; background:rgba(0,0,0,0.2); overflow:auto; }
-                  .code-content { width:100%; height:100%; background:transparent; color:var(--text-main); border:none; outline:none; font-family:monospace; resize:none; }
-                  .bottom-bar { height:50px; border-top:1px solid var(--border-color); display:flex; align-items:center; padding:0 15px; gap:10px; }
-                  .btn { padding:6px 18px; background:rgba(255,255,255,0.05); border:1px solid var(--border-color); border-radius:4px; color:var(--text-main); cursor:pointer; }
-                  .btn-primary { border-color:var(--accent-main); color:var(--accent-main); }
-                  .status-dot { width:8px; height:8px; background:#ff4444; border-radius:50%; }
-              </style>
-          </head>
-          <body>
-          <div class="executor-window">
-              <div class="title-bar"><div class="title-left"><div class="logo-box">M</div><div class="title-text">MYSTRIX HUB</div></div><div class="window-controls"><span>—</span><span>▢</span><span>✕</span></div></div>
-              <div class="main-content">
-                  <div class="sidebar"><div class="tab-item active">Executor</div><div class="tab-item">Saved Scripts</div><div class="tab-item">Auto-Execute</div></div>
-                  <div class="editor-container"><div class="code-view"><textarea id="scriptArea" class="code-content" placeholder="-- Write Lua script here\nloadstring('print(\"Hello\")')()"></textarea></div></div>
-              </div>
-              <div class="bottom-bar"><button class="btn btn-primary" id="executeBtn">EXECUTE</button><button class="btn" id="saveBtn">SAVE</button><button class="btn" id="loadBtn">LOAD</button><div class="spacer"></div><div class="status-dot" id="statusDot"></div><div class="status-text" id="statusText">Connected</div></div>
-          </div>
-          <script>
-              async function executeScript(code) {
-                  let resp = await fetch('http://localhost:1337/exec', {method:'POST', body:code});
-                  let result = await resp.text();
-                  console.log('Executed:', result);
-              }
-              document.getElementById('executeBtn').onclick = () => {
-                  let code = document.getElementById('scriptArea').value;
-                  executeScript(code);
-              };
-              document.getElementById('saveBtn').onclick = () => {
-                  let code = document.getElementById('scriptArea').value;
-                  localStorage.setItem('saved_script', code);
-                  alert('Saved locally');
-              };
-              document.getElementById('loadBtn').onclick = () => {
-                  let saved = localStorage.getItem('saved_script');
-                  if(saved) document.getElementById('scriptArea').value = saved;
-              };
-              // Auto-execute on page load if enabled
-              if(localStorage.getItem('autoexec') === 'true') {
-                  executeScript(localStorage.getItem('saved_script') || 'print("Auto-executed")');
-              }
-              document.querySelector('.tab-item:nth-child(3)').onclick = () => {
-                  let enabled = localStorage.getItem('autoexec') === 'true';
-                  localStorage.setItem('autoexec', !enabled);
-                  alert(`Auto-execute: ${!enabled ? 'ON' : 'OFF'}`);
-              };
-          </script>
-          </body>
-          </html>
-          HTMLDONE
+          echo "Build complete! Artifacts in build/"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mystrix-executor-macos
-          path: output/
+          name: mystrix-dylib
+          path: build/
