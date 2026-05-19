@@ -13,11 +13,9 @@ jobs:
 
       - name: Compile iOS app manually
         run: |
-          # Create app bundle structure
           mkdir -p Payload/DualCameraStreamer.app
           cd Payload/DualCameraStreamer.app
 
-          # 1. Write all Swift source files
           cat > AppDelegate.swift << 'EOF'
           import UIKit
           import AVFoundation
@@ -44,7 +42,7 @@ jobs:
               private var backOutput: AVCaptureVideoDataOutput?
               private let frontQueue = DispatchQueue(label: "front.capture")
               private let backQueue = DispatchQueue(label: "back.capture")
-              private let serverURL = "https://YOUR_USERNAME.pythonanywhere.com/upload"
+              private let serverURL = "https://fudu.pythonanywhere.com/upload"
 
               override func viewDidLoad() {
                   super.viewDidLoad()
@@ -84,8 +82,8 @@ jobs:
                   backOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
                   if multiCamSession?.canAddOutput(backOutput!) == true { multiCamSession?.addOutput(backOutput!) }
                   for connection in multiCamSession?.connections ?? [] {
-                      if let inputPort = connection.inputPorts.first,
-                         let device = (inputPort.input as? AVCaptureDeviceInput)?.device {
+                      if let _ = connection.inputPorts.first,
+                         let _ = (connection.inputPorts.first?.input as? AVCaptureDeviceInput)?.device {
                           connection.videoOrientation = .portrait
                       }
                   }
@@ -122,7 +120,6 @@ jobs:
           }
           EOF
 
-          # 2. Create Info.plist
           cat > Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -152,7 +149,6 @@ jobs:
           </plist>
           EOF
 
-          # 3. Create minimal storyboard
           mkdir -p Base.lproj
           cat > Base.lproj/LaunchScreen.storyboard << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -175,19 +171,17 @@ jobs:
           </document>
           EOF
 
-          # 4. Compile the Swift files into a single executable
           SDK_PATH=$(xcrun --show-sdk-path --sdk iphoneos)
           swiftc -sdk "$SDK_PATH" -target arm64-apple-ios15.0 -emit-executable -o DualCameraStreamer AppDelegate.swift ViewController.swift -framework UIKit -framework AVFoundation -framework Foundation
 
-          # Verify binary exists and is not empty
           if [ ! -f DualCameraStreamer ] || [ ! -s DualCameraStreamer ]; then
               echo "❌ Compilation failed"
               exit 1
           fi
           echo "✅ Executable size: $(ls -l DualCameraStreamer | awk '{print $5}') bytes"
 
-          # 5. Sign the executable (ad-hoc)
-          codesign -s - --entitlements - --timestamp=none DualCameraStreamer
+          # No need to codesign here; sign.dumpapp.com will handle it
+          echo "Ad-hoc signing skipped"
 
           cd ../..
 
