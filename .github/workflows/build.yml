@@ -8,18 +8,20 @@ jobs:
   build-ipa:
     runs-on: macos-14
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create Xcode project and source files
+      - name: Compile iOS app manually
         run: |
-          # Create app source directory
-          mkdir -p DualCameraStreamer/DualCameraStreamer
-          cd DualCameraStreamer
+          # Create app bundle structure
+          mkdir -p Payload/DualCameraStreamer.app
+          cd Payload/DualCameraStreamer.app
 
-          # AppDelegate.swift
-          cat > DualCameraStreamer/AppDelegate.swift << 'EOF'
+          # 1. Write all Swift source files
+          cat > AppDelegate.swift << 'EOF'
           import UIKit
+          import AVFoundation
+
           @main
           class AppDelegate: UIResponder, UIApplicationDelegate {
               var window: UIWindow?
@@ -32,8 +34,7 @@ jobs:
           }
           EOF
 
-          # ViewController.swift (with your dual-cam streaming)
-          cat > DualCameraStreamer/ViewController.swift << 'EOF'
+          cat > ViewController.swift << 'EOF'
           import UIKit
           import AVFoundation
 
@@ -43,7 +44,7 @@ jobs:
               private var backOutput: AVCaptureVideoDataOutput?
               private let frontQueue = DispatchQueue(label: "front.capture")
               private let backQueue = DispatchQueue(label: "back.capture")
-              private let serverURL = "https://fudu.pythonanywhere.com/upload"
+              private let serverURL = "https://YOUR_USERNAME.pythonanywhere.com/upload"
 
               override func viewDidLoad() {
                   super.viewDidLoad()
@@ -64,43 +65,30 @@ jobs:
               }
 
               private func setupMultiCamSession() {
-                  guard AVCaptureMultiCamSession.isMultiCamSupported else {
-                      print("Multi-cam not supported")
-                      return
-                  }
+                  guard AVCaptureMultiCamSession.isMultiCamSupported else { return }
                   multiCamSession = AVCaptureMultiCamSession()
-
                   guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
                         let frontInput = try? AVCaptureDeviceInput(device: frontCamera),
                         multiCamSession?.canAddInput(frontInput) == true else { return }
                   multiCamSession?.addInput(frontInput)
-
                   guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
                         let backInput = try? AVCaptureDeviceInput(device: backCamera),
                         multiCamSession?.canAddInput(backInput) == true else { return }
                   multiCamSession?.addInput(backInput)
-
                   frontOutput = AVCaptureVideoDataOutput()
                   frontOutput?.setSampleBufferDelegate(self, queue: frontQueue)
                   frontOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-                  if multiCamSession?.canAddOutput(frontOutput!) == true {
-                      multiCamSession?.addOutput(frontOutput!)
-                  }
-
+                  if multiCamSession?.canAddOutput(frontOutput!) == true { multiCamSession?.addOutput(frontOutput!) }
                   backOutput = AVCaptureVideoDataOutput()
                   backOutput?.setSampleBufferDelegate(self, queue: backQueue)
                   backOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-                  if multiCamSession?.canAddOutput(backOutput!) == true {
-                      multiCamSession?.addOutput(backOutput!)
-                  }
-
+                  if multiCamSession?.canAddOutput(backOutput!) == true { multiCamSession?.addOutput(backOutput!) }
                   for connection in multiCamSession?.connections ?? [] {
                       if let inputPort = connection.inputPorts.first,
                          let device = (inputPort.input as? AVCaptureDeviceInput)?.device {
                           connection.videoOrientation = .portrait
                       }
                   }
-
                   multiCamSession?.startRunning()
               }
 
@@ -134,378 +122,81 @@ jobs:
           }
           EOF
 
-          # Info.plist (complete)
-          cat > DualCameraStreamer/Info.plist << 'EOF'
+          # 2. Create Info.plist
+          cat > Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>$(DEVELOPMENT_LANGUAGE)</string>
               <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
+              <string>DualCameraStreamer</string>
               <key>CFBundleIdentifier</key>
               <string>com.hack.dualcamstreamer</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
               <key>CFBundleName</key>
-              <string>DualCamStreamer</string>
+              <string>DualCameraStreamer</string>
               <key>CFBundleDisplayName</key>
               <string>DualCam</string>
-              <key>CFBundlePackageType</key>
-              <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
               <key>CFBundleVersion</key>
               <string>1</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
               <key>LSRequiresIPhoneOS</key>
               <true/>
               <key>NSCameraUsageDescription</key>
-              <string>This app streams your camera to your server</string>
+              <string>This app streams your camera</string>
               <key>UILaunchStoryboardName</key>
               <string>LaunchScreen</string>
               <key>UIRequiredDeviceCapabilities</key>
-              <array>
-                  <string>armv7</string>
-              </array>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-              </array>
+              <array><string>armv7</string></array>
           </dict>
           </plist>
           EOF
 
-          # LaunchScreen.storyboard
-          mkdir -p DualCameraStreamer/Base.lproj
-          cat > DualCameraStreamer/Base.lproj/LaunchScreen.storyboard << 'EOF'
+          # 3. Create minimal storyboard
+          mkdir -p Base.lproj
+          cat > Base.lproj/LaunchScreen.storyboard << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="21507" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-              <dependencies>
-                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/>
-                  <capability name="Safe area layout guides" minToolsVersion="9.0"/>
-                  <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
-              </dependencies>
+              <dependencies><plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/></dependencies>
               <scenes>
                   <scene sceneID="EHf-IW-A2E">
                       <objects>
                           <viewController id="01J-lp-oVM" sceneMemberID="viewController">
                               <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                                   <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
-                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                  <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
                                   <color key="backgroundColor" red="0" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                               </view>
                           </viewController>
-                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" sceneMemberID="firstResponder"/>
                       </objects>
-                      <point key="canvasLocation" x="52.173913043478265" y="375"/>
+                      <point key="canvasLocation" x="52" y="375"/>
                   </scene>
               </scenes>
           </document>
           EOF
 
-          # Generate Xcode project file
-          mkdir -p DualCameraStreamer.xcodeproj
-          cat > DualCameraStreamer.xcodeproj/project.pbxproj << 'EOF'
-          // !$*UTF8*$!
-          {
-              archiveVersion = 1;
-              classes = {
-              };
-              objectVersion = 56;
-              objects = {
-                  /* Begin PBXFileReference section */
-                  E1A0B1C82D1E000000000001 /* DualCameraStreamer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DualCameraStreamer.app; sourceTree = BUILT_PRODUCTS_DIR; };
-                  E1A0B1C92D1E000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-                  E1A0B1CA2D1E000000000003 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
-                  E1A0B1CB2D1E000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-                  E1A0B1CC2D1E000000000005 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
-                  /* End PBXFileReference section */
+          # 4. Compile the Swift files into a single executable
+          SDK_PATH=$(xcrun --show-sdk-path --sdk iphoneos)
+          swiftc -sdk "$SDK_PATH" -target arm64-apple-ios15.0 -emit-executable -o DualCameraStreamer AppDelegate.swift ViewController.swift -framework UIKit -framework AVFoundation -framework Foundation
 
-                  /* Begin PBXGroup section */
-                  E1A0B1C72D1E000000000001 = {
-                      isa = PBXGroup;
-                      children = (
-                          E1A0B1CD2D1E000000000001 /* DualCameraStreamer */,
-                          E1A0B1CE2D1E000000000002 /* Products */,
-                      );
-                      sourceTree = "<group>";
-                  };
-                  E1A0B1CD2D1E000000000001 /* DualCameraStreamer */ = {
-                      isa = PBXGroup;
-                      children = (
-                          E1A0B1C92D1E000000000002 /* AppDelegate.swift */,
-                          E1A0B1CA2D1E000000000003 /* ViewController.swift */,
-                          E1A0B1CB2D1E000000000004 /* Info.plist */,
-                          E1A0B1CC2D1E000000000005 /* LaunchScreen.storyboard */,
-                      );
-                      path = DualCameraStreamer;
-                      sourceTree = "<group>";
-                  };
-                  E1A0B1CE2D1E000000000002 /* Products */ = {
-                      isa = PBXGroup;
-                      children = (
-                          E1A0B1C82D1E000000000001 /* DualCameraStreamer.app */,
-                      );
-                      name = Products;
-                      sourceTree = "<group>";
-                  };
-                  /* End PBXGroup section */
+          # Verify binary exists and is not empty
+          if [ ! -f DualCameraStreamer ] || [ ! -s DualCameraStreamer ]; then
+              echo "❌ Compilation failed"
+              exit 1
+          fi
+          echo "✅ Executable size: $(ls -l DualCameraStreamer | awk '{print $5}') bytes"
 
-                  /* Begin PBXNativeTarget section */
-                  E1A0B1CF2D1E000000000003 /* DualCameraStreamer */ = {
-                      isa = PBXNativeTarget;
-                      buildConfigurationList = E1A0B1D42D1E000000000004 /* Build configuration list for PBXNativeTarget "DualCameraStreamer" */;
-                      buildPhases = (
-                          E1A0B1D02D1E000000000005 /* Sources */,
-                          E1A0B1D12D1E000000000006 /* Frameworks */,
-                          E1A0B1D22D1E000000000007 /* Resources */,
-                      );
-                      buildRules = (
-                      );
-                      dependencies = (
-                      );
-                      name = DualCameraStreamer;
-                      productName = DualCameraStreamer;
-                      productReference = E1A0B1C82D1E000000000001 /* DualCameraStreamer.app */;
-                      productType = "com.apple.product-type.application";
-                  };
-                  /* End PBXNativeTarget section */
+          # 5. Sign the executable (ad-hoc)
+          codesign -s - --entitlements - --timestamp=none DualCameraStreamer
 
-                  /* Begin PBXProject section */
-                  E1A0B1C62D1E000000000001 /* Project object */ = {
-                      isa = PBXProject;
-                      attributes = {
-                          LastSwiftUpdateCheck = 1500;
-                          LastUpgradeCheck = 1500;
-                      };
-                      buildConfigurationList = E1A0B1C52D1E000000000001 /* Build configuration list for PBXProject "DualCameraStreamer" */;
-                      compatibilityVersion = "Xcode 14.0";
-                      developmentRegion = en;
-                      hasScannedForEncodings = 0;
-                      knownRegions = (
-                          en,
-                          Base,
-                      );
-                      mainGroup = E1A0B1C72D1E000000000001;
-                      productRefGroup = E1A0B1CE2D1E000000000002 /* Products */;
-                      projectDirPath = "";
-                      projectRoot = "";
-                      targets = (
-                          E1A0B1CF2D1E000000000003 /* DualCameraStreamer */,
-                      );
-                  };
-                  /* End PBXProject section */
+          cd ../..
 
-                  /* Begin PBXResourcesBuildPhase section */
-                  E1A0B1D22D1E000000000007 /* Resources */ = {
-                      isa = PBXResourcesBuildPhase;
-                      buildActionMask = 2147483647;
-                      files = (
-                      );
-                      runOnlyForDeploymentPostprocessing = 0;
-                  };
-                  /* End PBXResourcesBuildPhase section */
-
-                  /* Begin PBXSourcesBuildPhase section */
-                  E1A0B1D02D1E000000000005 /* Sources */ = {
-                      isa = PBXSourcesBuildPhase;
-                      buildActionMask = 2147483647;
-                      files = (
-                      );
-                      runOnlyForDeploymentPostprocessing = 0;
-                  };
-                  /* End PBXSourcesBuildPhase section */
-
-                  /* Begin XCBuildConfiguration section */
-                  E1A0B1D52D1E000000000008 /* Debug */ = {
-                      isa = XCBuildConfiguration;
-                      buildSettings = {
-                          ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-                          CODE_SIGN_STYLE = Manual;
-                          DEVELOPMENT_TEAM = "";
-                          INFOPLIST_FILE = DualCameraStreamer/Info.plist;
-                          LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-                          PRODUCT_BUNDLE_IDENTIFIER = com.hack.dualcamstreamer;
-                          PRODUCT_NAME = "$(TARGET_NAME)";
-                          SWIFT_VERSION = 5.0;
-                          TARGETED_DEVICE_FAMILY = "1,2";
-                          CODE_SIGNING_ALLOWED = NO;
-                          CODE_SIGNING_REQUIRED = NO;
-                      };
-                      name = Debug;
-                  };
-                  E1A0B1D62D1E000000000009 /* Release */ = {
-                      isa = XCBuildConfiguration;
-                      buildSettings = {
-                          ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-                          CODE_SIGN_STYLE = Manual;
-                          DEVELOPMENT_TEAM = "";
-                          INFOPLIST_FILE = DualCameraStreamer/Info.plist;
-                          LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-                          PRODUCT_BUNDLE_IDENTIFIER = com.hack.dualcamstreamer;
-                          PRODUCT_NAME = "$(TARGET_NAME)";
-                          SWIFT_VERSION = 5.0;
-                          TARGETED_DEVICE_FAMILY = "1,2";
-                          CODE_SIGNING_ALLOWED = NO;
-                          CODE_SIGNING_REQUIRED = NO;
-                      };
-                      name = Release;
-                  };
-                  E1A0B1D72D1E00000000000A /* Debug */ = {
-                      isa = XCBuildConfiguration;
-                      buildSettings = {
-                          ALWAYS_SEARCH_USER_PATHS = NO;
-                          CLANG_ANALYZER_NONNULL = YES;
-                          CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-                          CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-                          CLANG_ENABLE_MODULES = YES;
-                          CLANG_ENABLE_OBJC_ARC = YES;
-                          CLANG_ENABLE_OBJC_WEAK = YES;
-                          CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-                          CLANG_WARN_BOOL_CONVERSION = YES;
-                          CLANG_WARN_COMMA = YES;
-                          CLANG_WARN_CONSTANT_CONVERSION = YES;
-                          CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-                          CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-                          CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-                          CLANG_WARN_EMPTY_BODY = YES;
-                          CLANG_WARN_ENUM_CONVERSION = YES;
-                          CLANG_WARN_INFINITE_RECURSION = YES;
-                          CLANG_WARN_INT_CONVERSION = YES;
-                          CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-                          CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-                          CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-                          CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-                          CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-                          CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-                          CLANG_WARN_STRICT_PROTOTYPES = YES;
-                          CLANG_WARN_SUSPICIOUS_MOVE = YES;
-                          CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-                          CLANG_WARN_UNREACHABLE_CODE = YES;
-                          CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-                          COPY_PHASE_STRIP = NO;
-                          DEBUG_INFORMATION_FORMAT = dwarf;
-                          ENABLE_STRICT_OBJC_MSGSEND = YES;
-                          ENABLE_TESTABILITY = YES;
-                          GCC_C_LANGUAGE_STANDARD = gnu17;
-                          GCC_DYNAMIC_NO_PIC = NO;
-                          GCC_NO_COMMON_BLOCKS = YES;
-                          GCC_OPTIMIZATION_LEVEL = 0;
-                          GCC_PREPROCESSOR_DEFINITIONS = (
-                              "DEBUG=1",
-                              "$(inherited)",
-                          );
-                          GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-                          GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-                          GCC_WARN_UNDECLARED_SELECTOR = YES;
-                          GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-                          GCC_WARN_UNUSED_FUNCTION = YES;
-                          GCC_WARN_UNUSED_VARIABLE = YES;
-                          IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-                          MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-                          MTL_FAST_MATH = YES;
-                          ONLY_ACTIVE_ARCH = YES;
-                          SDKROOT = iphoneos;
-                          SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-                          SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-                      };
-                      name = Debug;
-                  };
-                  E1A0B1D82D1E00000000000B /* Release */ = {
-                      isa = XCBuildConfiguration;
-                      buildSettings = {
-                          ALWAYS_SEARCH_USER_PATHS = NO;
-                          CLANG_ANALYZER_NONNULL = YES;
-                          CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-                          CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-                          CLANG_ENABLE_MODULES = YES;
-                          CLANG_ENABLE_OBJC_ARC = YES;
-                          CLANG_ENABLE_OBJC_WEAK = YES;
-                          CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-                          CLANG_WARN_BOOL_CONVERSION = YES;
-                          CLANG_WARN_COMMA = YES;
-                          CLANG_WARN_CONSTANT_CONVERSION = YES;
-                          CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-                          CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-                          CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-                          CLANG_WARN_EMPTY_BODY = YES;
-                          CLANG_WARN_ENUM_CONVERSION = YES;
-                          CLANG_WARN_INFINITE_RECURSION = YES;
-                          CLANG_WARN_INT_CONVERSION = YES;
-                          CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-                          CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-                          CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-                          CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-                          CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-                          CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-                          CLANG_WARN_STRICT_PROTOTYPES = YES;
-                          CLANG_WARN_SUSPICIOUS_MOVE = YES;
-                          CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-                          CLANG_WARN_UNREACHABLE_CODE = YES;
-                          CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-                          COPY_PHASE_STRIP = NO;
-                          DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-                          ENABLE_NS_ASSERTIONS = NO;
-                          ENABLE_STRICT_OBJC_MSGSEND = YES;
-                          GCC_C_LANGUAGE_STANDARD = gnu17;
-                          GCC_NO_COMMON_BLOCKS = YES;
-                          GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-                          GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-                          GCC_WARN_UNDECLARED_SELECTOR = YES;
-                          GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-                          GCC_WARN_UNUSED_FUNCTION = YES;
-                          GCC_WARN_UNUSED_VARIABLE = YES;
-                          IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-                          MTL_ENABLE_DEBUG_INFO = NO;
-                          MTL_FAST_MATH = YES;
-                          SDKROOT = iphoneos;
-                          SWIFT_COMPILATION_MODE = wholemodule;
-                          SWIFT_OPTIMIZATION_LEVEL = "-O";
-                          VALIDATE_PRODUCT = YES;
-                      };
-                      name = Release;
-                  };
-                  /* End XCBuildConfiguration section */
-
-                  /* Begin XCConfigurationList section */
-                  E1A0B1C52D1E000000000001 /* Build configuration list for PBXProject "DualCameraStreamer" */ = {
-                      isa = XCConfigurationList;
-                      buildConfigurations = (
-                          E1A0B1D72D1E00000000000A /* Debug */,
-                          E1A0B1D82D1E00000000000B /* Release */,
-                      );
-                      defaultConfigurationIsVisible = 0;
-                      defaultConfigurationName = Release;
-                  };
-                  E1A0B1D42D1E000000000004 /* Build configuration list for PBXNativeTarget "DualCameraStreamer" */ = {
-                      isa = XCConfigurationList;
-                      buildConfigurations = (
-                          E1A0B1D52D1E000000000008 /* Debug */,
-                          E1A0B1D62D1E000000000009 /* Release */,
-                      );
-                      defaultConfigurationIsVisible = 0;
-                      defaultConfigurationName = Release;
-                  };
-                  /* End XCConfigurationList section */
-              };
-              rootObject = E1A0B1C62D1E000000000001 /* Project object */;
-          }
-          EOF
-
-      - name: Build unsigned IPA
+      - name: Package IPA
         run: |
-          cd DualCameraStreamer
-          xcodebuild -project DualCameraStreamer.xcodeproj -scheme DualCameraStreamer -sdk iphoneos -configuration Release build \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            CONFIGURATION_BUILD_DIR="$PWD/build"
-          mkdir -p Payload
-          cp -r build/DualCameraStreamer.app Payload/
           zip -r DualCamStreamer.ipa Payload/
-          mv DualCamStreamer.ipa ../
+          echo "✅ IPA created: $(ls -lh DualCamStreamer.ipa)"
 
-      - name: Upload IPA artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: DualCamStreamer.ipa
