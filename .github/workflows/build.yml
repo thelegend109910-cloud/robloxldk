@@ -1,10 +1,10 @@
-name: RDP with Cloudflare
+name: RDP with PacketRiot
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-cf:
+  rdp-pr:
     runs-on: windows-latest
     timeout-minutes: 360
 
@@ -20,21 +20,21 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "rdpuser"
           Restart-Service TermService -Force
 
-      - name: Download cloudflared
+      - name: Download PacketRiot
         shell: powershell
         run: |
-          $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-          $output = "C:\cloudflared.exe"
+          $url = "https://packetriot.com/downloads/riot.exe"
+          $output = "C:\riot.exe"
           Invoke-WebRequest -Uri $url -OutFile $output
 
-      - name: Start Cloudflare Tunnel
+      - name: Start PacketRiot Tunnel
         shell: powershell
         run: |
-          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--no-autoupdate", "--url", "tcp://localhost:3389" -RedirectStandardOutput "C:\cf.log" -RedirectStandardError "C:\cf.err" -WindowStyle Hidden
+          Start-Process -FilePath "C:\riot.exe" -ArgumentList "tunnel", "--tcp", "3389" -RedirectStandardOutput "C:\pr.log" -RedirectStandardError "C:\pr.err" -WindowStyle Hidden
           Start-Sleep -Seconds 20
-          Write-Host "=== CLOUDFLARE LOG ==="
-          Get-Content "C:\cf.log" -ErrorAction SilentlyContinue
-          Get-Content "C:\cf.err" -ErrorAction SilentlyContinue
+          Write-Host "=== PACKETRIOT LOG ==="
+          Get-Content "C:\pr.log" -ErrorAction SilentlyContinue
+          Get-Content "C:\pr.err" -ErrorAction SilentlyContinue
           Write-Host "======================"
 
       - name: Print Credentials
@@ -42,7 +42,7 @@ jobs:
         run: |
           Write-Host "========================================"
           Write-Host "RDP READY"
-          Write-Host "Look above for: tcp://xxxx.trycloudflare.com:xxxxx"
+          Write-Host "Check logs above for the tunnel URL"
           Write-Host "User = rdpuser"
           Write-Host "Pass = YourStrongP@ssw0rd!"
           Write-Host "========================================"
