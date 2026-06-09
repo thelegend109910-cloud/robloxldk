@@ -5,7 +5,7 @@ on:
 
 jobs:
   rdp-pr:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
 
     steps:
@@ -23,15 +23,40 @@ jobs:
       - name: Download PacketRiot
         shell: powershell
         run: |
-          $url = "https://packetriot.com/downloads/riot.exe"
-          $output = "C:\riot.exe"
-          Invoke-WebRequest -Uri $url -OutFile $output
+          # Try multiple download sources
+          $urls = @(
+            "https://pktriot-dl-bucket.s3.amazonaws.com/releases/0.15.4/pktriot-windows-amd64-0.15.4.zip",
+            "https://github.com/packetriot/packetriot/releases/download/0.15.4/pktriot-windows-amd64-0.15.4.zip"
+          )
+          foreach ($url in $urls) {
+            try {
+              Write-Host "Trying: $url"
+              $zip = "$env:TEMP\pktriot.zip"
+              Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 30
+              Expand-Archive -Path $zip -DestinationPath "C:\pktriot" -Force
+              Move-Item "C:\pktriot\pktriot.exe" "C:\pktriot.exe" -Force
+              Write-Host "Downloaded successfully"
+              break
+            } catch {
+              Write-Host "Failed: $_"
+            }
+          }
+          if (-not (Test-Path "C:\pktriot.exe")) {
+            throw "Failed to download PacketRiot"
+          }
+
+      - name: Configure PacketRiot
+        shell: powershell
+        run: |
+          # Initialize without auth (free tier)
+          & "C:\pktriot.exe" configure --url localhost:3389
+          Start-Sleep -Seconds 5
 
       - name: Start PacketRiot Tunnel
         shell: powershell
         run: |
-          Start-Process -FilePath "C:\riot.exe" -ArgumentList "tunnel", "--tcp", "3389" -RedirectStandardOutput "C:\pr.log" -RedirectStandardError "C:\pr.err" -WindowStyle Hidden
-          Start-Sleep -Seconds 20
+          Start-Process -FilePath "C:\pktriot.exe" -ArgumentList "tunnel", "start" -RedirectStandardOutput "C:\pr.log" -RedirectStandardError "C:\pr.err" -WindowStyle Hidden
+          Start-Sleep -Seconds 25
           Write-Host "=== PACKETRIOT LOG ==="
           Get-Content "C:\pr.log" -ErrorAction SilentlyContinue
           Get-Content "C:\pr.err" -ErrorAction SilentlyContinue
@@ -42,7 +67,7 @@ jobs:
         run: |
           Write-Host "========================================"
           Write-Host "RDP READY"
-          Write-Host "Check logs above for the tunnel URL"
+          Write-Host "Check logs above for tunnel URL"
           Write-Host "User = rdpuser"
           Write-Host "Pass = YourStrongP@ssw0rd!"
           Write-Host "========================================"
