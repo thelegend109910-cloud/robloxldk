@@ -1,10 +1,10 @@
-name: RDP with Serveo
+name: RDP with Cloudflare
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-serveo:
+  rdp-cf:
     runs-on: windows-latest
     timeout-minutes: 360
 
@@ -20,30 +20,29 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "rdpuser"
           Restart-Service TermService -Force
 
-      - name: Start Serveo Tunnel
+      - name: Download cloudflared
         shell: powershell
         run: |
-          # Start SSH tunnel in background, capture logs
-          $ssh = Start-Process -FilePath "ssh" -ArgumentList @(
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ServerAliveInterval=60",
-            "-o", "ServerAliveCountMax=3",
-            "-R", "0:localhost:3389",
-            "serveo.net"
-          ) -RedirectStandardOutput "C:\serveo.log" -RedirectStandardError "C:\serveo.err" -WindowStyle Hidden -PassThru
+          $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+          $output = "C:\cloudflared.exe"
+          Invoke-WebRequest -Uri $url -OutFile $output
+
+      - name: Start Cloudflare Tunnel
+        shell: powershell
+        run: |
+          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--no-autoupdate", "--url", "tcp://localhost:3389" -RedirectStandardOutput "C:\cf.log" -RedirectStandardError "C:\cf.err" -WindowStyle Hidden
           Start-Sleep -Seconds 20
-          Write-Host "=== SERVEO LOG ==="
-          Get-Content "C:\serveo.log" -ErrorAction SilentlyContinue
-          Get-Content "C:\serveo.err" -ErrorAction SilentlyContinue
-          Write-Host "=================="
+          Write-Host "=== CLOUDFLARE LOG ==="
+          Get-Content "C:\cf.log" -ErrorAction SilentlyContinue
+          Get-Content "C:\cf.err" -ErrorAction SilentlyContinue
+          Write-Host "======================"
 
       - name: Print Credentials
         shell: powershell
         run: |
           Write-Host "========================================"
           Write-Host "RDP READY"
-          Write-Host "Host: serveo.net"
-          Write-Host "Port: check logs above for allocated port"
+          Write-Host "Look above for: tcp://xxxx.trycloudflare.com:xxxxx"
           Write-Host "User = rdpuser"
           Write-Host "Pass = YourStrongP@ssw0rd!"
           Write-Host "========================================"
