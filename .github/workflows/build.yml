@@ -1,10 +1,10 @@
-name: RDP with PacketRiot
+name: RDP with Cloudflare TCP
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-pr:
+  rdp-cf:
     runs-on: windows-2022
     timeout-minutes: 360
 
@@ -20,54 +20,56 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "rdpuser"
           Restart-Service TermService -Force
 
-      - name: Download PacketRiot
+      - name: Download cloudflared
         shell: powershell
         run: |
-          # Try multiple download sources
-          $urls = @(
-            "https://pktriot-dl-bucket.s3.amazonaws.com/releases/0.15.4/pktriot-windows-amd64-0.15.4.zip",
-            "https://github.com/packetriot/packetriot/releases/download/0.15.4/pktriot-windows-amd64-0.15.4.zip"
-          )
-          foreach ($url in $urls) {
-            try {
-              Write-Host "Trying: $url"
-              $zip = "$env:TEMP\pktriot.zip"
-              Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 30
-              Expand-Archive -Path $zip -DestinationPath "C:\pktriot" -Force
-              Move-Item "C:\pktriot\pktriot.exe" "C:\pktriot.exe" -Force
-              Write-Host "Downloaded successfully"
-              break
-            } catch {
-              Write-Host "Failed: $_"
-            }
-          }
-          if (-not (Test-Path "C:\pktriot.exe")) {
-            throw "Failed to download PacketRiot"
-          }
+          $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+          $output = "C:\cloudflared.exe"
+          Invoke-WebRequest -Uri $url -OutFile $output
 
-      - name: Configure PacketRiot
+      - name: Start Cloudflare TCP Tunnel
         shell: powershell
         run: |
-          # Initialize without auth (free tier)
-          & "C:\pktriot.exe" configure --url localhost:3389
-          Start-Sleep -Seconds 5
-
-      - name: Start PacketRiot Tunnel
-        shell: powershell
-        run: |
-          Start-Process -FilePath "C:\pktriot.exe" -ArgumentList "tunnel", "start" -RedirectStandardOutput "C:\pr.log" -RedirectStandardError "C:\pr.err" -WindowStyle Hidden
+          # Start cloudflared with TCP protocol explicitly
+          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList @(
+            "tunnel",
+            "--no-autoupdate",
+            "--protocol", "quic",
+            "--url", "tcp://localhost:3389"
+          ) -RedirectStandardOutput "C:\cf.log" -RedirectStandardError "C:\cf.err" -WindowStyle Hidden
+          
           Start-Sleep -Seconds 25
-          Write-Host "=== PACKETRIOT LOG ==="
-          Get-Content "C:\pr.log" -ErrorAction SilentlyContinue
-          Get-Content "C:\pr.err" -ErrorAction SilentlyContinue
+          
+          Write-Host "=== CLOUDFLARE LOG ==="
+          $log = Get-Content "C:\cf.log" -ErrorAction SilentlyContinue
+          $err = Get-Content "C:\cf.err" -ErrorAction SilentlyContinue
+          Write-Host ($log -join "`n")
+          Write-Host ($err -join "`n")
           Write-Host "======================"
+
+      - name: Extract Tunnel URL
+        shell: powershell
+        run: |
+          $log = Get-Content "C:\cf.log" -ErrorAction SilentlyContinue
+          $err = Get-Content "C:\cf.err" -ErrorAction SilentlyContinue
+          $all = $log + $err
+          
+          # Look for the tunnel URL
+          $url = $all | Select-String -Pattern "https://.*\.trycloudflare\.com" | Select-Object -First 1
+          if ($url) {
+            Write-Host "TUNNEL URL: $url"
+            # For TCP, we need to convert to tcp:// format
+            $tcpUrl = $url -replace "https://", "tcp://"
+            Write-Host "TCP URL: $tcpUrl"
+          } else {
+            Write-Host "No tunnel URL found in logs"
+          }
 
       - name: Print Credentials
         shell: powershell
         run: |
           Write-Host "========================================"
           Write-Host "RDP READY"
-          Write-Host "Check logs above for tunnel URL"
           Write-Host "User = rdpuser"
           Write-Host "Pass = YourStrongP@ssw0rd!"
           Write-Host "========================================"
